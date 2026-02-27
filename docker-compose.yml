@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  fit-server:
+    build: .
+    container_name: fit-server
+    restart: unless-stopped
+    ports:
+      - "9418:9418"
+    volumes:
+      - fit-data:/data/.fit
+    environment:
+      - USER=fit
+    networks:
+      - fit-network
+
+volumes:
+  fit-data:
+    driver: local
+
+networks:
+  fit-network:
+    driver: bridge
