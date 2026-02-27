@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200112L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,21 +77,28 @@ int net_daemon_start(int port) {
 }
 
 int net_send_objects(const char *host, int port, const hash_t *hashes, size_t count) {
-    struct hostent *server = gethostbyname(host);
-    if (!server) return -1;
+    struct addrinfo hints = {0}, *result;
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
     
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) return -1;
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
     
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    memcpy(&addr.sin_addr.s_addr, server->h_addr_list[0], server->h_length);
-    addr.sin_port = htons(port);
+    if (getaddrinfo(host, port_str, &hints, &result) != 0) return -1;
     
-    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        close(sock);
+    int sock = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    if (sock < 0) {
+        freeaddrinfo(result);
         return -1;
     }
+    
+    if (connect(sock, result->ai_addr, result->ai_addrlen) < 0) {
+        close(sock);
+        freeaddrinfo(result);
+        return -1;
+    }
+    
+    freeaddrinfo(result);
     
     uint8_t version = PROTOCOL_VERSION;
     uint8_t cmd = CMD_SEND_OBJECTS;
