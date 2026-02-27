@@ -122,10 +122,57 @@ int net_send_objects(const char *host, int port, const hash_t *hashes, size_t co
     return 0;
 }
 
-int net_recv_objects(const char *host, int port, const hash_t *hashes, size_t count) {
-    (void)host;
-    (void)port;
-    (void)hashes;
-    (void)count;
-    return 0;
+int net_recv_objects(const char *host, int port, const char *branch) {
+    struct addrinfo hints = {0}, *result;
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    
+    if (getaddrinfo(host, port_str, &hints, &result) != 0) return -1;
+    
+    int sock = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    if (sock < 0) {
+        freeaddrinfo(result);
+        return -1;
+    }
+    
+    if (connect(sock, result->ai_addr, result->ai_addrlen) < 0) {
+        close(sock);
+        freeaddrinfo(result);
+        return -1;
+    }
+    
+    freeaddrinfo(result);
+    
+    uint8_t version = PROTOCOL_VERSION;
+    uint8_t cmd = CMD_REQUEST_OBJECTS;
+    write(sock, &version, 1);
+    write(sock, &cmd, 1);
+    
+    size_t branch_len = strlen(branch);
+    write(sock, &branch_len, sizeof(branch_len));
+    write(sock, branch, branch_len);
+    
+    char pack_file[256];
+    snprintf(pack_file, sizeof(pack_file), "/tmp/fit_recv_%d.pack", getpid());
+    
+    FILE *f = fopen(pack_file, "wb");
+    if (!f) {
+        close(sock);
+        return -1;
+    }
+    
+    char buf[8192];
+    ssize_t n;
+    while ((n = read(sock, buf, sizeof(buf))) > 0) {
+        fwrite(buf, 1, n, f);
+    }
+    fclose(f);
+    close(sock);
+    
+    int ret = unpack_objects(pack_file);
+    unlink(pack_file);
+    return ret;
 }

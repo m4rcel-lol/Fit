@@ -97,7 +97,7 @@ int unpack_objects(const char *pack_file);
 /* network.c */
 int net_daemon_start(int port);
 int net_send_objects(const char *host, int port, const hash_t *hashes, size_t count);
-int net_recv_objects(const char *host, int port, const hash_t *hashes, size_t count);
+int net_recv_objects(const char *host, int port, const char *branch);
 
 /* gc.c */
 int gc_run(void);
@@ -107,5 +107,9 @@ int mkdirp(const char *path);
 int file_exists(const char *path);
 char* read_file(const char *path, size_t *size);
 int write_file(const char *path, const void *data, size_t size);
+
+/* checkout.c */
+int checkout_commit(const hash_t *commit_hash);
+int checkout_tree(const hash_t *tree_hash, const char *prefix);
 
 #endif

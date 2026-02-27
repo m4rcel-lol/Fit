@@ -16,12 +16,17 @@ static void cmd_branch(int argc, char **argv);
 static void cmd_checkout(int argc, char **argv);
 static void cmd_daemon(int argc, char **argv);
 static void cmd_push(int argc, char **argv);
+static void cmd_pull(int argc, char **argv);
+static void cmd_clone(int argc, char **argv);
+static void cmd_restore(int argc, char **argv);
 static void cmd_gc(void);
 static void cmd_snapshot(int argc, char **argv);
+static void cmd_help(void);
+static void cmd_credits(void);
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: fit <command> [args]\n");
+        cmd_help();
         return 1;
     }
     
@@ -34,10 +39,16 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[1], "checkout") == 0) cmd_checkout(argc - 2, argv + 2);
     else if (strcmp(argv[1], "daemon") == 0) cmd_daemon(argc - 2, argv + 2);
     else if (strcmp(argv[1], "push") == 0) cmd_push(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "pull") == 0) cmd_pull(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "clone") == 0) cmd_clone(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "restore") == 0) cmd_restore(argc - 2, argv + 2);
     else if (strcmp(argv[1], "gc") == 0) cmd_gc();
     else if (strcmp(argv[1], "snapshot") == 0) cmd_snapshot(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) cmd_help();
+    else if (strcmp(argv[1], "credits") == 0) cmd_credits();
     else {
         fprintf(stderr, "Unknown command: %s\n", argv[1]);
+        cmd_help();
         return 1;
     }
     
@@ -213,24 +224,43 @@ static void cmd_branch(int argc, char **argv) {
 
 static void cmd_checkout(int argc, char **argv) {
     if (argc < 1) {
-        fprintf(stderr, "Usage: fit checkout <branch>\n");
+        fprintf(stderr, "Usage: fit checkout <branch|commit>\n");
         return;
     }
     
+    hash_t hash;
     char ref_name[256];
     snprintf(ref_name, sizeof(ref_name), "heads/%s", argv[0]);
     
-    hash_t hash;
-    if (ref_read(ref_name, &hash) < 0) {
-        fprintf(stderr, "Branch %s not found\n", argv[0]);
-        return;
+    if (ref_read(ref_name, &hash) == 0) {
+        FILE *f = fopen(FIT_HEAD_FILE, "w");
+        fprintf(f, "ref: refs/%s\n", ref_name);
+        fclose(f);
+        
+        commit_t commit;
+        if (commit_read(&hash, &commit) == 0) {
+            checkout_tree(&commit.tree, NULL);
+            commit_free(&commit);
+        }
+        
+        printf("Switched to branch %s\n", argv[0]);
+    } else if (hex_to_hash(argv[0], &hash) == 0) {
+        commit_t commit;
+        if (commit_read(&hash, &commit) == 0) {
+            checkout_tree(&commit.tree, NULL);
+            commit_free(&commit);
+            
+            FILE *f = fopen(FIT_HEAD_FILE, "w");
+            fprintf(f, "%s\n", argv[0]);
+            fclose(f);
+            
+            printf("Checked out commit %s (detached HEAD)\n", argv[0]);
+        } else {
+            fprintf(stderr, "Invalid commit hash\n");
+        }
+    } else {
+        fprintf(stderr, "Branch or commit not found: %s\n", argv[0]);
     }
-    
-    FILE *f = fopen(FIT_HEAD_FILE, "w");
-    fprintf(f, "ref: refs/%s\n", ref_name);
-    fclose(f);
-    
-    printf("Switched to branch %s\n", argv[0]);
 }
 
 static void cmd_daemon(int argc, char **argv) {
@@ -324,4 +354,156 @@ static void cmd_snapshot(int argc, char **argv) {
     cmd_commit(2, commit_argv);
     
     printf("Snapshot created\n");
+}
+
+static void cmd_pull(int argc, char **argv) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: fit pull <host> <branch>\n");
+        return;
+    }
+    
+    printf("Pulling from %s...\n", argv[0]);
+    
+    if (net_recv_objects(argv[0], 9418, argv[1]) == 0) {
+        char ref_name[256];
+        snprintf(ref_name, sizeof(ref_name), "heads/%s", argv[1]);
+        
+        hash_t hash;
+        if (ref_read(ref_name, &hash) == 0) {
+            ref_update_head(&hash);
+            printf("Updated branch %s\n", argv[1]);
+        }
+    } else {
+        fprintf(stderr, "Pull failed\n");
+    }
+}
+
+static void cmd_clone(int argc, char **argv) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: fit clone <host> <branch> [directory]\n");
+        return;
+    }
+    
+    const char *dir = argc >= 3 ? argv[2] : ".";
+    
+    if (strcmp(dir, ".") != 0) {
+        mkdirp(dir);
+        if (chdir(dir) < 0) {
+            fprintf(stderr, "Failed to enter directory %s\n", dir);
+            return;
+        }
+    }
+    
+    cmd_init();
+    
+    char *pull_argv[] = { argv[0], argv[1] };
+    cmd_pull(2, pull_argv);
+    
+    hash_t hash;
+    if (ref_resolve_head(&hash) == 0) {
+        checkout_commit(&hash);
+        printf("Cloned into %s\n", dir);
+    }
+}
+
+static void cmd_restore(int argc, char **argv) {
+    if (argc < 1) {
+        fprintf(stderr, "Usage: fit restore <commit-hash>\n");
+        return;
+    }
+    
+    hash_t hash;
+    if (hex_to_hash(argv[0], &hash) < 0) {
+        fprintf(stderr, "Invalid commit hash\n");
+        return;
+    }
+    
+    if (checkout_commit(&hash) == 0) {
+        printf("Restored files from commit %s\n", argv[0]);
+    } else {
+        fprintf(stderr, "Failed to restore commit\n");
+    }
+}
+
+static void cmd_help(void) {
+    printf("╔══════════════════════════════════════════════════════════════╗\n");
+    printf("║                    FIT - Filesystem Inside Terminal          ║\n");
+    printf("╚══════════════════════════════════════════════════════════════╝\n\n");
+    
+    printf("USAGE:\n");
+    printf("  fit <command> [arguments]\n\n");
+    
+    printf("COMMANDS:\n");
+    printf("  init                      Initialize a new repository\n");
+    printf("  add <files>               Stage files for commit\n");
+    printf("  commit -m <message>       Create a commit\n");
+    printf("  log                       Show commit history\n");
+    printf("  status                    Show repository status\n");
+    printf("  branch [name]             List or create branches\n");
+    printf("  checkout <branch>         Switch to a branch and restore files\n");
+    printf("  snapshot -m <message>     Quick backup of all files\n");
+    printf("  push <host> <branch>      Push to remote server\n");
+    printf("  pull <host> <branch>      Pull from remote server\n");
+    printf("  clone <host> <branch> [dir]  Clone remote repository\n");
+    printf("  restore <commit>          Restore files from commit\n");
+    printf("  daemon --port <port>      Start server daemon\n");
+    printf("  gc                        Run garbage collection\n");
+    printf("  help                      Show this help message\n");
+    printf("  credits                   Show credits and info\n\n");
+    
+    printf("EXAMPLES:\n");
+    printf("  fit init\n");
+    printf("  fit snapshot -m \"Daily backup\"\n");
+    printf("  fit push 192.168.1.50 main\n");
+    printf("  fit pull 192.168.1.50 main\n");
+    printf("  fit clone 192.168.1.50 main ~/backup\n");
+    printf("  fit restore abc123def456\n");
+    printf("  fit daemon --port 9418\n\n");
+    
+    printf("For more info, see README.md or run 'fit credits'\n");
+}
+
+static void cmd_credits(void) {
+    printf("\n");
+    printf("╔══════════════════════════════════════════════════════════════╗\n");
+    printf("║                                                              ║\n");
+    printf("║                    FIT - Filesystem Inside Terminal          ║\n");
+    printf("║                                                              ║\n");
+    printf("╚══════════════════════════════════════════════════════════════╝\n\n");
+    
+    printf("  A distributed version control and backup system\n");
+    printf("  inspired by Git's internal architecture.\n\n");
+    
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+    
+    printf("  CREATED BY:     m4rcel-lol\n");
+    printf("  WRITTEN IN:     C (C17 standard)\n");
+    printf("  INSPIRED BY:    Git by Linus Torvalds\n");
+    printf("  LICENSE:        MIT License\n\n");
+    
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+    
+    printf("  FEATURES:\n");
+    printf("    • Content-addressable storage (SHA-256)\n");
+    printf("    • Object model: blob, tree, commit\n");
+    printf("    • zlib compression\n");
+    printf("    • Custom TCP network protocol\n");
+    printf("    • Distributed backup between machines\n");
+    printf("    • Branch management\n");
+    printf("    • Garbage collection\n\n");
+    
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+    
+    printf("  QUICK START:\n");
+    printf("    fit init                    # Initialize repository\n");
+    printf("    fit snapshot -m \"Backup\"    # Create backup\n");
+    printf("    fit push <host> main        # Push to server\n\n");
+    
+    printf("  SERVER:\n");
+    printf("    fit daemon --port 9418      # Start backup server\n\n");
+    
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+    
+    printf("  Built with ❤️  in C, designed for backups.\n");
+    printf("  Because your filesystem belongs inside your terminal.\n\n");
 }

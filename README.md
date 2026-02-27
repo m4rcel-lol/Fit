@@ -123,7 +123,7 @@ fit branch
 # Create branch
 fit branch feature
 
-# Switch branch
+# Switch branch (restores files)
 fit checkout feature
 ```
 
@@ -145,6 +145,22 @@ fit daemon --port 9418
 
 # Push from client
 fit push server.local main
+
+# Pull from server
+fit pull server.local main
+
+# Clone repository
+fit clone server.local main ~/myproject
+```
+
+### Disaster Recovery
+
+```bash
+# Restore files from a specific commit
+fit restore <commit-hash>
+
+# Or checkout a branch (restores files automatically)
+fit checkout main
 ```
 
 ### Maintenance
