@@ -95,7 +95,7 @@ make install
 
 ## Web Interface
 
-Fit includes a web interface similar to cgit for easy repository browsing:
+Fit includes a modern web interface similar to cgit/Gitea for easy repository browsing:
 
 ```bash
 # Build and start web interface
@@ -113,13 +113,54 @@ Access at `http://localhost:8080`
 - Password: `M@rc8l1257`
 
 **Features:**
-- Browse commit history
-- Navigate repository files
+- Modern GitHub-style dark theme
+- Browse commit history with detailed information
+- Navigate repository files with file browser
 - Download individual files
 - Download full repository archive
 - Session-based authentication with SQLite
+- Responsive design
 
 **Security Note:** The web interface is for local/trusted network use. For production, use behind reverse proxy with HTTPS.
+
+## Docker Deployment (24/7 Server)
+
+Run both the Fit daemon and web interface 24/7 with Docker:
+
+```bash
+# Build and start both servers
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop servers
+docker-compose down
+```
+
+**Auto-start on boot (systemd):**
+
+```bash
+# Install as system service
+chmod +x install_service.sh
+./install_service.sh
+
+# Check status
+sudo systemctl status fit-server
+
+# View logs
+docker-compose logs -f
+```
+
+This will:
+- Start Fit daemon on port 9418
+- Start web interface on port 8080
+- Auto-restart on failure
+- Auto-start on system boot
+
+Access:
+- Web UI: `http://localhost:8080`
+- Daemon: `fit push localhost main`
 
 ## Usage
 

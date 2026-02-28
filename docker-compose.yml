@@ -7,8 +7,9 @@ services:
     restart: unless-stopped
     ports:
       - "9418:9418"
+      - "8080:8080"
     volumes:
-      - fit-data:/data/.fit
+      - fit-data:/data
     environment:
       - USER=fit
     networks:

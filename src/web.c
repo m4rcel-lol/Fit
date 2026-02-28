@@ -70,63 +70,143 @@ void send_response(int client, const char *status, const char *content_type, con
 
 void send_login_page(int client) {
     const char *html = 
-        "<!DOCTYPE html><html><head><title>Fit Login</title>"
-        "<style>body{font-family:monospace;max-width:400px;margin:100px auto;background:#1e1e1e;color:#d4d4d4}"
-        "input{display:block;width:100%;margin:10px 0;padding:8px;background:#2d2d2d;border:1px solid #444;color:#d4d4d4}"
-        "button{width:100%;padding:10px;background:#0e639c;color:#fff;border:none;cursor:pointer}"
-        "button:hover{background:#1177bb}</style></head><body>"
-        "<h2>Fit Web Interface</h2>"
+        "<!DOCTYPE html><html><head><title>Fit: Login</title><meta charset='utf-8'>"
+        "<style>*{margin:0;padding:0;box-sizing:border-box}"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;display:flex;align-items:center;justify-content:center}"
+        ".login-container{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:32px;width:340px;box-shadow:0 8px 24px rgba(0,0,0,.4)}"
+        ".logo{text-align:center;margin-bottom:24px;font-size:48px;color:#58a6ff}"
+        "h2{text-align:center;margin-bottom:24px;font-size:24px;font-weight:300;color:#f0f6fc}"
+        ".form-group{margin-bottom:16px}"
+        "label{display:block;margin-bottom:8px;font-size:14px;font-weight:600;color:#c9d1d9}"
+        "input{width:100%;padding:10px 12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:14px;transition:border-color .2s}"
+        "input:focus{outline:none;border-color:#58a6ff;box-shadow:0 0 0 3px rgba(88,166,255,.1)}"
+        "button{width:100%;padding:10px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s}"
+        "button:hover{background:#2ea043}"
+        ".footer{text-align:center;margin-top:16px;font-size:12px;color:#8b949e}"
+        "</style></head><body>"
+        "<div class='login-container'>"
+        "<div class='logo'>📦</div>"
+        "<h2>Sign in to Fit</h2>"
         "<form method='POST' action='/login'>"
-        "<input name='username' placeholder='Username' required>"
-        "<input name='password' type='password' placeholder='Password' required>"
-        "<button type='submit'>Login</button></form></body></html>";
+        "<div class='form-group'><label>Username</label><input name='username' autocomplete='username' required></div>"
+        "<div class='form-group'><label>Password</label><input name='password' type='password' autocomplete='current-password' required></div>"
+        "<button type='submit'>Sign in</button>"
+        "</form>"
+        "<div class='footer'>Fit Version Control System</div>"
+        "</div></body></html>";
     send_response(client, "200 OK", "text/html", html, NULL);
 }
 
 void send_main_page(int client, const char *token __attribute__((unused))) {
-    char html[BUFFER_SIZE];
+    char html[BUFFER_SIZE * 2];
     char commits[4096] = "";
+    int commit_count = 0;
     
     FILE *fp = popen("cd /home/m5rcel/Fit && ./bin/fit log 2>/dev/null", "r");
     if (fp) {
-        char line[256];
-        while (fgets(line, sizeof(line), fp)) {
-            strcat(commits, line);
-            strcat(commits, "<br>");
+        char line[512];
+        char current_commit[256] = "";
+        while (fgets(line, sizeof(line), fp) && commit_count < 20) {
+            if (strncmp(line, "commit ", 7) == 0) {
+                if (current_commit[0]) {
+                    strcat(commits, "</div>");
+                }
+                commit_count++;
+                char hash[65];
+                sscanf(line, "commit %64s", hash);
+                char commit_html[512];
+                snprintf(commit_html, sizeof(commit_html),
+                    "<div class='commit-item'>"
+                    "<div class='commit-header'><span class='commit-hash'>%.8s</span>", hash);
+                strcat(commits, commit_html);
+                strcpy(current_commit, hash);
+            } else if (strstr(line, "Author:")) {
+                char author[128];
+                sscanf(line, " Author: %127[^\n]", author);
+                char author_html[256];
+                snprintf(author_html, sizeof(author_html), "<span class='commit-author'>%s</span></div>", author);
+                strcat(commits, author_html);
+            } else if (strstr(line, "Date:")) {
+                char date[128];
+                sscanf(line, " Date: %127[^\n]", date);
+                char date_html[256];
+                snprintf(date_html, sizeof(date_html), "<div class='commit-date'>%s</div>", date);
+                strcat(commits, date_html);
+            } else if (line[0] != '\n' && line[0] != ' ' && line[0] != '\t') {
+                continue;
+            } else {
+                char msg[256];
+                if (sscanf(line, " %255[^\n]", msg) == 1) {
+                    char msg_html[512];
+                    snprintf(msg_html, sizeof(msg_html), "<div class='commit-message'>%s</div>", msg);
+                    strcat(commits, msg_html);
+                }
+            }
         }
+        if (current_commit[0]) strcat(commits, "</div>");
         pclose(fp);
     }
     
     snprintf(html, sizeof(html),
-        "<!DOCTYPE html><html><head><title>Fit Repository</title>"
-        "<style>body{font-family:monospace;max-width:1200px;margin:20px auto;background:#1e1e1e;color:#d4d4d4}"
-        "a{color:#4fc3f7;text-decoration:none}a:hover{text-decoration:underline}"
-        ".header{background:#2d2d2d;padding:15px;margin-bottom:20px;border-radius:5px}"
-        ".section{background:#2d2d2d;padding:15px;margin:10px 0;border-radius:5px}"
-        ".commit{border-left:3px solid #0e639c;padding-left:10px;margin:10px 0}"
-        "button{padding:8px 15px;background:#0e639c;color:#fff;border:none;cursor:pointer;margin:5px}"
-        "button:hover{background:#1177bb}</style></head><body>"
-        "<div class='header'><h1>Fit Repository</h1>"
-        "<a href='/logout'>Logout</a> | <a href='/files'>Browse Files</a> | <a href='/download'>Download Archive</a></div>"
-        "<div class='section'><h2>Recent Commits</h2><div class='commit'>%s</div></div>"
-        "</body></html>",
-        commits[0] ? commits : "No commits yet");
+        "<!DOCTYPE html><html><head><title>Fit Repository</title><meta charset='utf-8'>"
+        "<style>*{margin:0;padding:0;box-sizing:border-box}"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#0d1117;color:#c9d1d9;line-height:1.5}"
+        ".header{background:#161b22;border-bottom:1px solid #21262d;padding:16px 32px}"
+        ".header-content{max-width:1280px;margin:0 auto;display:flex;justify-content:space-between;align-items:center}"
+        ".logo{display:flex;align-items:center;gap:12px;font-size:20px;font-weight:600;color:#f0f6fc}"
+        ".logo-icon{font-size:32px}"
+        ".nav{display:flex;gap:16px}"
+        ".nav a{color:#7d8590;text-decoration:none;padding:8px 16px;border-radius:6px;transition:all .2s}"
+        ".nav a:hover{background:#21262d;color:#c9d1d9}"
+        ".container{max-width:1280px;margin:0 auto;padding:24px 32px}"
+        ".section{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:0;margin-bottom:24px;overflow:hidden}"
+        ".section-header{padding:16px 20px;border-bottom:1px solid #21262d;font-size:14px;font-weight:600;background:#0d1117}"
+        ".commit-list{padding:0}"
+        ".commit-item{padding:16px 20px;border-bottom:1px solid #21262d;transition:background .2s}"
+        ".commit-item:last-child{border-bottom:none}"
+        ".commit-item:hover{background:#0d1117}"
+        ".commit-header{display:flex;align-items:center;gap:12px;margin-bottom:8px}"
+        ".commit-hash{font-family:'SFMono-Regular',Consolas,monospace;background:#1f6feb;color:#fff;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:600}"
+        ".commit-author{color:#7d8590;font-size:14px}"
+        ".commit-date{color:#7d8590;font-size:12px;margin-bottom:8px}"
+        ".commit-message{color:#c9d1d9;font-size:14px}"
+        ".stats{display:flex;gap:24px;padding:20px}"
+        ".stat-item{text-align:center}"
+        ".stat-value{font-size:24px;font-weight:600;color:#58a6ff}"
+        ".stat-label{font-size:12px;color:#7d8590;margin-top:4px}"
+        ".empty{padding:48px 20px;text-align:center;color:#7d8590}"
+        "</style></head><body>"
+        "<div class='header'><div class='header-content'>"
+        "<div class='logo'><span class='logo-icon'>📦</span>Fit Repository</div>"
+        "<div class='nav'>"
+        "<a href='/'>📊 Commits</a>"
+        "<a href='/files'>📁 Files</a>"
+        "<a href='/download'>⬇️ Download</a>"
+        "<a href='/logout'>🚪 Logout</a>"
+        "</div></div></div>"
+        "<div class='container'>"
+        "<div class='section'>"
+        "<div class='section-header'>📝 Recent Commits</div>"
+        "<div class='commit-list'>%s</div>"
+        "</div>"
+        "</div></body></html>",
+        commits[0] ? commits : "<div class='empty'>No commits yet. Initialize repository with 'fit init' and create your first commit.</div>");
     
     send_response(client, "200 OK", "text/html", html, NULL);
 }
 
 void send_files_page(int client, const char *path) {
-    char html[BUFFER_SIZE];
-    char files[4096] = "<ul>";
+    char html[BUFFER_SIZE * 2];
+    char files[8192] = "";
     char fullpath[512];
-    snprintf(fullpath, sizeof(fullpath), "/home/m5rcel/Fit%s", path);
+    snprintf(fullpath, sizeof(fullpath), "/home/m5rcel/Fit%s", path[0] ? path : "");
     
     DIR *dir = opendir(fullpath);
     if (dir) {
         struct dirent *ent;
         while ((ent = readdir(dir))) {
             if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
-            if (strstr(ent->d_name, ".fit")) continue;
+            if (strstr(ent->d_name, ".fit") || strstr(ent->d_name, ".git")) continue;
             
             char filepath[512];
             snprintf(filepath, sizeof(filepath), "%s/%s", fullpath, ent->d_name);
@@ -134,28 +214,75 @@ void send_files_page(int client, const char *path) {
             stat(filepath, &st);
             
             if (S_ISDIR(st.st_mode)) {
-                char link[256];
-                snprintf(link, sizeof(link), "<li>📁 <a href='/files%s/%s'>%s/</a></li>", path, ent->d_name, ent->d_name);
+                char link[512];
+                snprintf(link, sizeof(link), 
+                    "<tr class='file-row'>"
+                    "<td class='file-icon'>📁</td>"
+                    "<td class='file-name'><a href='/files%s/%s'>%s</a></td>"
+                    "<td class='file-size'>-</td>"
+                    "</tr>", path, ent->d_name, ent->d_name);
                 strcat(files, link);
             } else {
-                char link[256];
-                snprintf(link, sizeof(link), "<li>📄 <a href='/raw%s/%s'>%s</a> (%ld bytes)</li>", path, ent->d_name, ent->d_name, st.st_size);
+                char size_str[32];
+                if (st.st_size < 1024) snprintf(size_str, sizeof(size_str), "%ld B", st.st_size);
+                else if (st.st_size < 1024*1024) snprintf(size_str, sizeof(size_str), "%.1f KB", st.st_size/1024.0);
+                else snprintf(size_str, sizeof(size_str), "%.1f MB", st.st_size/(1024.0*1024.0));
+                
+                char link[512];
+                snprintf(link, sizeof(link),
+                    "<tr class='file-row'>"
+                    "<td class='file-icon'>📄</td>"
+                    "<td class='file-name'><a href='/raw%s/%s'>%s</a></td>"
+                    "<td class='file-size'>%s</td>"
+                    "</tr>", path, ent->d_name, ent->d_name, size_str);
                 strcat(files, link);
             }
         }
         closedir(dir);
     }
-    strcat(files, "</ul>");
     
     snprintf(html, sizeof(html),
-        "<!DOCTYPE html><html><head><title>Browse Files</title>"
-        "<style>body{font-family:monospace;max-width:1200px;margin:20px auto;background:#1e1e1e;color:#d4d4d4}"
-        "a{color:#4fc3f7;text-decoration:none}a:hover{text-decoration:underline}"
-        ".header{background:#2d2d2d;padding:15px;margin-bottom:20px;border-radius:5px}"
-        "ul{list-style:none;padding:0}li{padding:8px;background:#2d2d2d;margin:5px 0;border-radius:3px}</style></head><body>"
-        "<div class='header'><h1>Browse: %s</h1><a href='/'>← Back to Repository</a></div>"
-        "%s</body></html>",
-        path, files);
+        "<!DOCTYPE html><html><head><title>Browse Files - Fit</title><meta charset='utf-8'>"
+        "<style>*{margin:0;padding:0;box-sizing:border-box}"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#0d1117;color:#c9d1d9;line-height:1.5}"
+        ".header{background:#161b22;border-bottom:1px solid #21262d;padding:16px 32px}"
+        ".header-content{max-width:1280px;margin:0 auto;display:flex;justify-content:space-between;align-items:center}"
+        ".logo{display:flex;align-items:center;gap:12px;font-size:20px;font-weight:600;color:#f0f6fc}"
+        ".logo-icon{font-size:32px}"
+        ".nav{display:flex;gap:16px}"
+        ".nav a{color:#7d8590;text-decoration:none;padding:8px 16px;border-radius:6px;transition:all .2s}"
+        ".nav a:hover{background:#21262d;color:#c9d1d9}"
+        ".container{max-width:1280px;margin:0 auto;padding:24px 32px}"
+        ".breadcrumb{margin-bottom:16px;font-size:14px;color:#7d8590}"
+        ".breadcrumb a{color:#58a6ff;text-decoration:none}"
+        ".breadcrumb a:hover{text-decoration:underline}"
+        ".section{background:#161b22;border:1px solid #30363d;border-radius:6px;overflow:hidden}"
+        ".file-table{width:100%;border-collapse:collapse}"
+        ".file-row{border-bottom:1px solid #21262d;transition:background .2s}"
+        ".file-row:hover{background:#0d1117}"
+        ".file-row:last-child{border-bottom:none}"
+        ".file-icon{padding:12px 16px;width:40px;font-size:18px}"
+        ".file-name{padding:12px 8px}"
+        ".file-name a{color:#58a6ff;text-decoration:none;font-size:14px}"
+        ".file-name a:hover{text-decoration:underline}"
+        ".file-size{padding:12px 16px;text-align:right;color:#7d8590;font-size:12px;width:100px}"
+        ".empty{padding:48px 20px;text-align:center;color:#7d8590}"
+        "</style></head><body>"
+        "<div class='header'><div class='header-content'>"
+        "<div class='logo'><span class='logo-icon'>📦</span>Fit Repository</div>"
+        "<div class='nav'>"
+        "<a href='/'>📊 Commits</a>"
+        "<a href='/files'>📁 Files</a>"
+        "<a href='/download'>⬇️ Download</a>"
+        "<a href='/logout'>🚪 Logout</a>"
+        "</div></div></div>"
+        "<div class='container'>"
+        "<div class='breadcrumb'>📁 <a href='/files'>root</a>%s</div>"
+        "<div class='section'>"
+        "<table class='file-table'>%s</table>"
+        "</div>"
+        "</div></body></html>",
+        path, files[0] ? files : "<tr><td colspan='3' class='empty'>Empty directory</td></tr>");
     
     send_response(client, "200 OK", "text/html", html, NULL);
 }
