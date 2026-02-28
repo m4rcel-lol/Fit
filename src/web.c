@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -82,7 +83,7 @@ void send_login_page(int client) {
     send_response(client, "200 OK", "text/html", html, NULL);
 }
 
-void send_main_page(int client, const char *token) {
+void send_main_page(int client, const char *token __attribute__((unused))) {
     char html[BUFFER_SIZE];
     char commits[4096] = "";
     
