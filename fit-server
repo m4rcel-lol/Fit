@@ -1,0 +1,28 @@
+#!/sbin/openrc-run
+
+name="Fit Server"
+description="Fit Version Control System - Daemon and Web Interface"
+
+depend() {
+    need docker
+    after docker
+}
+
+start() {
+    ebegin "Starting Fit server"
+    cd /home/m5rcel/Fit
+    docker-compose up -d
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping Fit server"
+    cd /home/m5rcel/Fit
+    docker-compose down
+    eend $?
+}
+
+status() {
+    cd /home/m5rcel/Fit
+    docker-compose ps
+}

@@ -102,7 +102,7 @@ void send_main_page(int client, const char *token __attribute__((unused))) {
     char commits[4096] = "";
     int commit_count = 0;
     
-    FILE *fp = popen("cd /home/m5rcel/Fit && ./bin/fit log 2>/dev/null", "r");
+    FILE *fp = popen("./bin/fit log 2>/dev/null", "r");
     if (fp) {
         char line[512];
         char current_commit[256] = "";
@@ -199,22 +199,23 @@ void send_files_page(int client, const char *path) {
     char html[BUFFER_SIZE * 2];
     char files[8192] = "";
     char fullpath[512];
-    snprintf(fullpath, sizeof(fullpath), "/home/m5rcel/Fit%s", path[0] ? path : "");
+    snprintf(fullpath, sizeof(fullpath), ".%s", path[0] ? path : "");
     
     DIR *dir = opendir(fullpath);
     if (dir) {
         struct dirent *ent;
         while ((ent = readdir(dir))) {
             if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
-            if (strstr(ent->d_name, ".fit") || strstr(ent->d_name, ".git")) continue;
+            if (strstr(ent->d_name, ".fit") || strstr(ent->d_name, ".git") || 
+                strcmp(ent->d_name, "bin") == 0 || strcmp(ent->d_name, "obj") == 0) continue;
             
             char filepath[512];
             snprintf(filepath, sizeof(filepath), "%s/%s", fullpath, ent->d_name);
             struct stat st;
-            stat(filepath, &st);
+            if (stat(filepath, &st) != 0) continue;
             
             if (S_ISDIR(st.st_mode)) {
-                char link[512];
+                char link[1024];
                 snprintf(link, sizeof(link), 
                     "<tr class='file-row'>"
                     "<td class='file-icon'>📁</td>"
@@ -228,7 +229,7 @@ void send_files_page(int client, const char *path) {
                 else if (st.st_size < 1024*1024) snprintf(size_str, sizeof(size_str), "%.1f KB", st.st_size/1024.0);
                 else snprintf(size_str, sizeof(size_str), "%.1f MB", st.st_size/(1024.0*1024.0));
                 
-                char link[512];
+                char link[1024];
                 snprintf(link, sizeof(link),
                     "<tr class='file-row'>"
                     "<td class='file-icon'>📄</td>"
@@ -257,7 +258,7 @@ void send_files_page(int client, const char *path) {
         ".breadcrumb a{color:#58a6ff;text-decoration:none}"
         ".breadcrumb a:hover{text-decoration:underline}"
         ".section{background:#161b22;border:1px solid #30363d;border-radius:6px;overflow:hidden}"
-        ".file-table{width:100%;border-collapse:collapse}"
+        ".file-table{width:100%%;border-collapse:collapse}"
         ".file-row{border-bottom:1px solid #21262d;transition:background .2s}"
         ".file-row:hover{background:#0d1117}"
         ".file-row:last-child{border-bottom:none}"
@@ -289,7 +290,7 @@ void send_files_page(int client, const char *path) {
 
 void send_raw_file(int client, const char *path) {
     char fullpath[512];
-    snprintf(fullpath, sizeof(fullpath), "/home/m5rcel/Fit%s", path);
+    snprintf(fullpath, sizeof(fullpath), ".%s", path);
     
     FILE *f = fopen(fullpath, "rb");
     if (!f) {
@@ -301,16 +302,25 @@ void send_raw_file(int client, const char *path) {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
     
-    char *content = malloc(size);
+    char *content = malloc(size + 1);
+    if (!content) {
+        fclose(f);
+        send_response(client, "500 Internal Server Error", "text/plain", "Out of memory", NULL);
+        return;
+    }
+    
     fread(content, 1, size, f);
     fclose(f);
+    
+    const char *filename = strrchr(path, '/');
+    filename = filename ? filename + 1 : path;
     
     char header[512];
     snprintf(header, sizeof(header),
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/octet-stream\r\n"
         "Content-Disposition: attachment; filename=\"%s\"\r\n"
-        "Content-Length: %ld\r\n\r\n", strrchr(path, '/') + 1, size);
+        "Content-Length: %ld\r\n\r\n", filename, size);
     
     write(client, header, strlen(header));
     write(client, content, size);
@@ -369,7 +379,7 @@ void handle_request(int client) {
     } else if (strncmp(path, "/raw", 4) == 0) {
         send_raw_file(client, path + 4);
     } else if (strcmp(path, "/download") == 0) {
-        system("cd /home/m5rcel/Fit && tar czf /tmp/fit-repo.tar.gz --exclude=.fit .");
+        system("tar czf /tmp/fit-repo.tar.gz --exclude=.fit --exclude=.git --exclude=bin --exclude=obj .");
         FILE *f = fopen("/tmp/fit-repo.tar.gz", "rb");
         if (f) {
             fseek(f, 0, SEEK_END);
