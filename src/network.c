@@ -65,8 +65,86 @@ int net_daemon_start(int port) {
             }
             fclose(f);
             
-            unpack_objects(pack_file);
+            if (unpack_objects(pack_file) == 0) {
+                hash_t latest_commit = {0};
+                FILE *pf = fopen(pack_file, "rb");
+                if (pf) {
+                    char sig[4];
+                    fread(sig, 1, 4, pf);
+                    uint32_t version, num_objects;
+                    fread(&version, 4, 1, pf);
+                    fread(&num_objects, 4, 1, pf);
+                    
+                    if (num_objects > 0) {
+                        uint32_t type, size;
+                        fread(&type, 4, 1, pf);
+                        fread(&size, 4, 1, pf);
+                        fread(latest_commit.hash, HASH_SIZE, 1, pf);
+                        
+                        if (ntohl(type) == OBJ_COMMIT) {
+                            ref_write("heads/main", &latest_commit);
+                        }
+                    }
+                    fclose(pf);
+                }
+            }
             unlink(pack_file);
+        } else if (cmd == CMD_REQUEST_OBJECTS) {
+            size_t branch_len;
+            read(client_fd, &branch_len, sizeof(branch_len));
+            
+            char branch[256] = {0};
+            if (branch_len < sizeof(branch)) {
+                read(client_fd, branch, branch_len);
+            }
+            
+            char ref_name[256];
+            snprintf(ref_name, sizeof(ref_name), "heads/%s", branch);
+            
+            hash_t hash;
+            if (ref_read(ref_name, &hash) == 0) {
+                hash_t hashes[256];
+                int count = 0;
+                
+                hash_t current = hash;
+                while (count < 256) {
+                    hashes[count++] = current;
+                    
+                    commit_t commit;
+                    if (commit_read(&current, &commit) < 0) break;
+                    
+                    int has_parent = 0;
+                    for (int i = 0; i < HASH_SIZE; i++) {
+                        if (commit.parent.hash[i]) {
+                            has_parent = 1;
+                            break;
+                        }
+                    }
+                    
+                    if (!has_parent) {
+                        commit_free(&commit);
+                        break;
+                    }
+                    
+                    current = commit.parent;
+                    commit_free(&commit);
+                }
+                
+                char pack_file[256];
+                snprintf(pack_file, sizeof(pack_file), "/tmp/fit_send_%d.pack", getpid());
+                pack_objects(hashes, count, pack_file);
+                
+                FILE *f = fopen(pack_file, "rb");
+                if (f) {
+                    char buf[8192];
+                    size_t n;
+                    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+                        write(client_fd, buf, n);
+                    }
+                    fclose(f);
+                    unlink(pack_file);
+                }
+            }
         }
         
         close(client_fd);

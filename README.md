@@ -71,7 +71,7 @@ Commands:
 
 ```bash
 # Install dependencies
-sudo pacman -S gcc make zlib openssl
+sudo pacman -S gcc make zlib openssl sqlite
 
 # Build
 make
@@ -84,7 +84,7 @@ sudo make install
 
 ```bash
 # Install dependencies
-apk add gcc musl-dev make zlib-dev openssl-dev
+apk add gcc musl-dev make zlib-dev openssl-dev sqlite-dev
 
 # Build
 make
@@ -92,6 +92,34 @@ make
 # Install
 make install
 ```
+
+## Web Interface
+
+Fit includes a web interface similar to cgit for easy repository browsing:
+
+```bash
+# Build and start web interface
+make web
+
+# Or use the startup script
+chmod +x start_web.sh
+./start_web.sh
+```
+
+Access at `http://localhost:8080`
+
+**Login credentials:**
+- Username: `m5rcel`
+- Password: `M@rc8l1257`
+
+**Features:**
+- Browse commit history
+- Navigate repository files
+- Download individual files
+- Download full repository archive
+- Session-based authentication with SQLite
+
+**Security Note:** The web interface is for local/trusted network use. For production, use behind reverse proxy with HTTPS.
 
 ## Usage
 
