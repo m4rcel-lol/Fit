@@ -7,20 +7,24 @@ SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
 
-FIT_SOURCES = $(filter-out $(SRC_DIR)/web.c, $(wildcard $(SRC_DIR)/*.c))
+FIT_SOURCES = $(filter-out $(SRC_DIR)/web.c $(SRC_DIR)/web_enhanced.c, $(wildcard $(SRC_DIR)/*.c))
 FIT_OBJECTS = $(FIT_SOURCES:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 TARGET = $(BIN_DIR)/fit
 WEB_TARGET = $(BIN_DIR)/fitweb
+WEB_ENHANCED_TARGET = $(BIN_DIR)/fitweb-enhanced
 
-.PHONY: all clean install test web
+.PHONY: all clean install test web web-enhanced
 
-all: $(TARGET) $(WEB_TARGET)
+all: $(TARGET) $(WEB_TARGET) $(WEB_ENHANCED_TARGET)
 
 $(TARGET): $(FIT_OBJECTS) | $(BIN_DIR)
 	$(CC) $(FIT_OBJECTS) -o $@ $(LDFLAGS)
 
 $(WEB_TARGET): $(OBJ_DIR)/web.o | $(BIN_DIR)
 	$(CC) $(OBJ_DIR)/web.o -o $@ $(WEB_LDFLAGS)
+
+$(WEB_ENHANCED_TARGET): $(OBJ_DIR)/web_enhanced.o | $(BIN_DIR)
+	$(CC) $(OBJ_DIR)/web_enhanced.o -o $@ $(WEB_LDFLAGS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -41,6 +45,10 @@ install: $(TARGET) $(WEB_TARGET)
 web: $(WEB_TARGET)
 	@echo "Starting Fit Web Interface on http://localhost:8080"
 	@$(WEB_TARGET)
+
+web-enhanced: $(WEB_ENHANCED_TARGET)
+	@echo "Starting Fit Web Interface (Enhanced Edition) on http://localhost:8080"
+	@$(WEB_ENHANCED_TARGET)
 
 test: $(TARGET)
 	@echo "Running tests..."

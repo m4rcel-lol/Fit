@@ -1,0 +1,30 @@
+# Build artifacts
+bin/
+obj/
+*.o
+*.a
+
+# Web interface database
+fitweb.db
+
+# Test artifacts
+test_repo/
+*.tar.gz
+
+# Fit repositories
+.fit/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+/tmp/
+*.tmp

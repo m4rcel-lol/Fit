@@ -112,4 +112,9 @@ int write_file(const char *path, const void *data, size_t size);
 int checkout_commit(const hash_t *commit_hash);
 int checkout_tree(const hash_t *tree_hash, const char *prefix);
 
+/* diff.c */
+int diff_blobs(const hash_t *hash1, const hash_t *hash2);
+int diff_trees(const hash_t *tree1, const hash_t *tree2, const char *prefix);
+int diff_commits(const hash_t *commit1, const hash_t *commit2);
+
 #endif
