@@ -93,12 +93,40 @@ fit push server.local main
 | `fit commit -m <msg>` | Create commit |
 | `fit log` | Show commit history |
 | `fit status` | Show repository status |
+| `fit diff <c1> <c2>` | **NEW!** Compare commits |
 | `fit branch [name]` | List or create branches |
 | `fit checkout <branch>` | Switch branches |
 | `fit snapshot -m <msg>` | Quick backup of all files |
 | `fit push <host> <branch>` | Push to remote |
 | `fit daemon --port <port>` | Start server daemon |
 | `fit gc` | Garbage collection |
+| `fit help` | Show all commands |
+
+---
+
+## Web Interface (NEW! ✨)
+
+Fit now includes a modern web interface for browsing your repository:
+
+```bash
+# Standard interface
+make web
+
+# Enhanced interface (recommended)
+./start_web_enhanced.sh
+# or
+make web-enhanced
+```
+
+**Access at**: `http://localhost:8080`
+**Login**: `m5rcel` / `M@rc8l1257`
+
+**Features**:
+- 🔍 Search commits
+- 📈 Repository statistics
+- 🌿 Branch viewer
+- 📄 File viewer with line numbers
+- 📱 Mobile responsive
 
 ---
 

@@ -95,7 +95,9 @@ make install
 
 ## Web Interface
 
-Fit includes a modern web interface similar to cgit/Gitea for easy repository browsing:
+Fit includes two web interfaces for easy repository browsing:
+
+### Standard Web Interface
 
 ```bash
 # Build and start web interface
@@ -106,13 +108,24 @@ chmod +x start_web.sh
 ./start_web.sh
 ```
 
+### Enhanced Web Interface (NEW! ✨)
+
+```bash
+# Build and start enhanced web interface
+make web-enhanced
+
+# Or use the enhanced startup script
+chmod +x start_web_enhanced.sh
+./start_web_enhanced.sh
+```
+
 Access at `http://localhost:8080`
 
 **Login credentials:**
 - Username: `m5rcel`
 - Password: `M@rc8l1257`
 
-**Features:**
+**Standard Features:**
 - Modern GitHub-style dark theme
 - Browse commit history with detailed information
 - Navigate repository files with file browser
@@ -120,6 +133,15 @@ Access at `http://localhost:8080`
 - Download full repository archive
 - Session-based authentication with SQLite
 - Responsive design
+
+**Enhanced Edition Features:**
+- ✨ **Commit search** - Quickly find commits by message or author
+- 📈 **Repository statistics dashboard** - View commit count, object count, branches, and repo size
+- 🌿 **Branch management interface** - View and manage all branches
+- 📄 **File viewer with line numbers** - View source files with syntax-aware display
+- 📱 **Improved mobile responsiveness** - Better experience on phones and tablets
+- 🎨 **Modern UI enhancements** - Smoother animations and better visual hierarchy
+- 🔍 **Better navigation** - Quick access to all features with improved header
 
 **Security Note:** The web interface is for local/trusted network use. For production, use behind reverse proxy with HTTPS.
 
@@ -181,6 +203,23 @@ fit log
 
 # Check status
 fit status
+
+# Compare commits (NEW! ✨)
+fit diff <commit1> <commit2>
+```
+
+### Comparing Changes
+
+```bash
+# View differences between two commits
+fit diff abc123 def456
+
+# Compare a commit with HEAD
+fit diff abc123
+
+# See what changed in recent commits
+fit log  # Get commit hashes
+fit diff <older-hash> <newer-hash>
 ```
 
 ### Branching

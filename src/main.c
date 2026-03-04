@@ -21,6 +21,7 @@ static void cmd_clone(int argc, char **argv);
 static void cmd_restore(int argc, char **argv);
 static void cmd_gc(void);
 static void cmd_snapshot(int argc, char **argv);
+static void cmd_diff(int argc, char **argv);
 static void cmd_help(void);
 static void cmd_credits(void);
 
@@ -44,6 +45,7 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[1], "restore") == 0) cmd_restore(argc - 2, argv + 2);
     else if (strcmp(argv[1], "gc") == 0) cmd_gc();
     else if (strcmp(argv[1], "snapshot") == 0) cmd_snapshot(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "diff") == 0) cmd_diff(argc - 2, argv + 2);
     else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) cmd_help();
     else if (strcmp(argv[1], "credits") == 0) cmd_credits();
     else {
@@ -439,6 +441,7 @@ static void cmd_help(void) {
     printf("  commit -m <message>       Create a commit\n");
     printf("  log                       Show commit history\n");
     printf("  status                    Show repository status\n");
+    printf("  diff <commit1> <commit2>  Show differences between commits\n");
     printf("  branch [name]             List or create branches\n");
     printf("  checkout <branch>         Switch to a branch and restore files\n");
     printf("  snapshot -m <message>     Quick backup of all files\n");
@@ -506,4 +509,40 @@ static void cmd_credits(void) {
     
     printf("  Built with ❤️  in C, designed for backups.\n");
     printf("  Because your filesystem belongs inside your terminal.\n\n");
+}
+
+static void cmd_diff(int argc, char **argv) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: fit diff <commit1> <commit2>\n");
+        fprintf(stderr, "   or: fit diff <commit>  (compare with HEAD)\n");
+        return;
+    }
+
+    hash_t hash1, hash2;
+
+    if (argc == 1) {
+        /* Compare specified commit with HEAD */
+        if (hex_to_hash(argv[0], &hash1) < 0) {
+            fprintf(stderr, "Invalid commit hash: %s\n", argv[0]);
+            return;
+        }
+        if (ref_resolve_head(&hash2) < 0) {
+            fprintf(stderr, "Failed to resolve HEAD\n");
+            return;
+        }
+    } else {
+        /* Compare two commits */
+        if (hex_to_hash(argv[0], &hash1) < 0) {
+            fprintf(stderr, "Invalid commit hash: %s\n", argv[0]);
+            return;
+        }
+        if (hex_to_hash(argv[1], &hash2) < 0) {
+            fprintf(stderr, "Invalid commit hash: %s\n", argv[1]);
+            return;
+        }
+    }
+
+    if (diff_commits(&hash1, &hash2) < 0) {
+        fprintf(stderr, "Failed to diff commits\n");
+    }
 }
