@@ -6,13 +6,14 @@
 
 ---
 
-## Project Statistics
+## Project Statistics (v1.1.0)
 
-- **Lines of Code**: ~1,350 lines of C
-- **Binary Size**: 41 KB (stripped)
-- **Dependencies**: zlib, OpenSSL (minimal)
-- **Build Time**: < 5 seconds
+- **Lines of Code**: ~2,600 lines of C (core + web)
+- **Binary Size**: 53 KB (stripped, main binary)
+- **Dependencies**: zlib, OpenSSL, SQLite (minimal)
+- **Build Time**: < 10 seconds
 - **Test Coverage**: 10 integration tests (100% pass rate)
+- **Web Interfaces**: 2 (standard + enhanced)
 
 ---
 
@@ -33,12 +34,23 @@
 ✅ `fit commit` - Create commits
 ✅ `fit log` - View history
 ✅ `fit status` - Repository status
+✅ `fit diff` - **NEW!** Compare commits
 ✅ `fit branch` - Branch management
 ✅ `fit checkout` - Switch branches
 ✅ `fit snapshot` - Quick backup
 ✅ `fit push` - Send to remote
 ✅ `fit daemon` - Server mode
 ✅ `fit gc` - Garbage collection
+
+### Web Interface
+✅ Standard web interface
+✅ **NEW!** Enhanced web interface with:
+  - Commit search
+  - Repository statistics dashboard
+  - Branch management UI
+  - File viewer with line numbers
+  - Mobile responsive design
+  - Modern GitHub-style UI
 
 ### Network & Distribution
 ✅ Custom TCP protocol (port 9418)
