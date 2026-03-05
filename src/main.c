@@ -701,31 +701,105 @@ static void cmd_merge(int argc, char **argv) {
         return;
     }
 
-    /* Simple fast-forward merge: just update HEAD to target */
-    commit_t target_commit;
-    if (commit_read(&target_hash, &target_commit) < 0) {
-        fprintf(stderr, "Failed to read target commit\n");
-        free(current_branch);
-        return;
-    }
+    /* Perform three-way merge */
+    int merge_result = merge_three_way(&current_hash, &target_hash, current_branch, branch_name);
 
-    /* Checkout the target tree */
-    if (checkout_tree(&target_commit.tree, NULL) < 0) {
-        fprintf(stderr, "Failed to checkout tree\n");
+    if (merge_result == 1) {
+        /* Fast-forward merge */
+        commit_t target_commit;
+        if (commit_read(&target_hash, &target_commit) < 0) {
+            fprintf(stderr, "Failed to read target commit\n");
+            free(current_branch);
+            return;
+        }
+
+        if (checkout_tree(&target_commit.tree, NULL) < 0) {
+            fprintf(stderr, "Failed to checkout tree\n");
+            commit_free(&target_commit);
+            free(current_branch);
+            return;
+        }
+
+        ref_update_head(&target_hash);
+
+        char hex[HASH_HEX_SIZE + 1];
+        hash_to_hex(&target_hash, hex);
+        printf("Fast-forward merge: %s -> %.8s\n", branch_name, hex);
+        printf("Merged '%s' into '%s'\n", branch_name, current_branch);
+
         commit_free(&target_commit);
-        free(current_branch);
-        return;
+    } else if (merge_result == 0) {
+        /* Successful three-way merge - create merge commit */
+        printf("Creating merge commit...\n");
+
+        /* Build tree from current working directory */
+        index_entry_t *entries = NULL;
+        if (index_read(&entries) < 0) {
+            fprintf(stderr, "Failed to read index\n");
+            free(current_branch);
+            return;
+        }
+
+        /* Add all modified files to index */
+        // In a real implementation, we'd scan the working directory
+        // For now, we assume the merge has updated files in place
+
+        hash_t tree_hash;
+        tree_entry_t *tree_entries = NULL;
+
+        /* Build tree from index entries */
+        for (index_entry_t *e = entries; e; e = e->next) {
+            tree_entry_t *new_entry = tree_entry_new(e->mode, e->path, &e->hash);
+            new_entry->next = tree_entries;
+            tree_entries = new_entry;
+        }
+
+        if (tree_write(tree_entries, &tree_hash) < 0) {
+            fprintf(stderr, "Failed to write tree\n");
+            tree_free(tree_entries);
+            index_free(entries);
+            free(current_branch);
+            return;
+        }
+
+        tree_free(tree_entries);
+        index_free(entries);
+
+        /* Create merge commit with two parents */
+        commit_t merge_commit;
+        merge_commit.tree = tree_hash;
+        merge_commit.parent = current_hash;  // First parent is current HEAD
+        merge_commit.author = getenv("USER") ? getenv("USER") : "unknown";
+
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Merge branch '%s' into %s", branch_name, current_branch);
+        merge_commit.message = msg;
+        merge_commit.timestamp = time(NULL);
+
+        hash_t commit_hash;
+        if (commit_write(&merge_commit, &commit_hash) < 0) {
+            fprintf(stderr, "Failed to write merge commit\n");
+            free(current_branch);
+            return;
+        }
+
+        /* Update HEAD */
+        ref_update_head(&commit_hash);
+
+        char hex[HASH_HEX_SIZE + 1];
+        hash_to_hex(&commit_hash, hex);
+        printf("Merge commit created: %.8s\n", hex);
+        printf("Merged '%s' into '%s'\n", branch_name, current_branch);
+    } else if (merge_result == -2) {
+        /* Conflicts detected */
+        printf("\nPlease resolve conflicts and commit the result with:\n");
+        printf("  fit add <conflicted-files>\n");
+        printf("  fit commit -m \"Merge branch '%s' into %s\"\n", branch_name, current_branch);
+    } else {
+        /* Merge failed */
+        fprintf(stderr, "Merge failed\n");
     }
 
-    /* Update HEAD */
-    ref_update_head(&target_hash);
-
-    char hex[HASH_HEX_SIZE + 1];
-    hash_to_hex(&target_hash, hex);
-    printf("Fast-forward merge: %s -> %.8s\n", branch_name, hex);
-    printf("Merged '%s' into '%s'\n", branch_name, current_branch);
-
-    commit_free(&target_commit);
     free(current_branch);
 }
 

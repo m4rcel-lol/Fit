@@ -25,3 +25,12 @@ int hex_to_hash(const char *hex, hash_t *hash) {
 int hash_equal(const hash_t *a, const hash_t *b) {
     return memcmp(a->hash, b->hash, HASH_SIZE) == 0;
 }
+
+int hash_is_null(const hash_t *hash) {
+    for (int i = 0; i < HASH_SIZE; i++) {
+        if (hash->hash[i] != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}

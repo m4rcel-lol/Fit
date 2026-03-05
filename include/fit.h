@@ -138,4 +138,9 @@ int stash_drop(const char *stash_name);
 /* verify.c */
 int verify_repository(void);
 
+/* merge.c */
+int merge_three_way(const hash_t *current_commit, const hash_t *target_commit,
+                    const char *current_branch, const char *target_branch);
+int hash_is_null(const hash_t *hash);
+
 #endif
