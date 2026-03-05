@@ -66,16 +66,30 @@ int main(int argc, char **argv) {
 }
 
 static void cmd_init(void) {
-    mkdirp(FIT_OBJECTS_DIR);
-    mkdirp(FIT_HEADS_DIR);
-    
+    if (mkdirp(FIT_OBJECTS_DIR) != 0) {
+        fprintf(stderr, "Error: Failed to create objects directory\n");
+        return;
+    }
+    if (mkdirp(FIT_HEADS_DIR) != 0) {
+        fprintf(stderr, "Error: Failed to create refs/heads directory\n");
+        return;
+    }
+
     FILE *f = fopen(FIT_HEAD_FILE, "w");
+    if (!f) {
+        fprintf(stderr, "Error: Failed to create HEAD file\n");
+        return;
+    }
     fprintf(f, "ref: refs/heads/main\n");
     fclose(f);
-    
+
     f = fopen(FIT_INDEX_FILE, "w");
+    if (!f) {
+        fprintf(stderr, "Error: Failed to create index file\n");
+        return;
+    }
     fclose(f);
-    
+
     printf("Initialized empty Fit repository in %s\n", FIT_DIR);
 }
 

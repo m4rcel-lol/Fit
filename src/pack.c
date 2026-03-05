@@ -18,86 +18,160 @@ typedef struct {
 int pack_objects(const hash_t *hashes, size_t count, const char *pack_file) {
     FILE *f = fopen(pack_file, "wb");
     if (!f) return -1;
-    
-    fwrite(PACK_SIGNATURE, 1, 4, f);
+
+    if (fwrite(PACK_SIGNATURE, 1, 4, f) != 4) {
+        fclose(f);
+        return -1;
+    }
+
     uint32_t version = htonl(PACK_VERSION);
-    fwrite(&version, 4, 1, f);
+    if (fwrite(&version, 4, 1, f) != 1) {
+        fclose(f);
+        return -1;
+    }
+
     uint32_t num_objects = htonl(count);
-    fwrite(&num_objects, 4, 1, f);
-    
+    if (fwrite(&num_objects, 4, 1, f) != 1) {
+        fclose(f);
+        return -1;
+    }
+
     for (size_t i = 0; i < count; i++) {
         object_t obj;
         if (object_read(&hashes[i], &obj) < 0) continue;
-        
+
         uint32_t type = htonl(obj.type);
         uint32_t size = htonl(obj.size);
-        
-        fwrite(&type, 4, 1, f);
-        fwrite(&size, 4, 1, f);
-        fwrite(hashes[i].hash, HASH_SIZE, 1, f);
-        
+
+        if (fwrite(&type, 4, 1, f) != 1 ||
+            fwrite(&size, 4, 1, f) != 1 ||
+            fwrite(hashes[i].hash, HASH_SIZE, 1, f) != 1) {
+            object_free(&obj);
+            fclose(f);
+            return -1;
+        }
+
         uLongf compressed_size = compressBound(obj.size);
         unsigned char *compressed = malloc(compressed_size);
-        compress(compressed, &compressed_size, (unsigned char*)obj.data, obj.size);
-        
+        if (!compressed) {
+            object_free(&obj);
+            fclose(f);
+            return -1;
+        }
+
+        int compress_result = compress(compressed, &compressed_size, (unsigned char*)obj.data, obj.size);
+        if (compress_result != Z_OK) {
+            free(compressed);
+            object_free(&obj);
+            fclose(f);
+            return -1;
+        }
+
         uint32_t comp_size = htonl(compressed_size);
-        fwrite(&comp_size, 4, 1, f);
-        fwrite(compressed, compressed_size, 1, f);
-        
+        if (fwrite(&comp_size, 4, 1, f) != 1 ||
+            fwrite(compressed, compressed_size, 1, f) != 1) {
+            free(compressed);
+            object_free(&obj);
+            fclose(f);
+            return -1;
+        }
+
         free(compressed);
         object_free(&obj);
     }
-    
-    fclose(f);
+
+    if (fclose(f) != 0) {
+        return -1;
+    }
+
     return 0;
 }
 
 int unpack_objects(const char *pack_file) {
     FILE *f = fopen(pack_file, "rb");
     if (!f) return -1;
-    
+
     char sig[4];
-    fread(sig, 1, 4, f);
+    if (fread(sig, 1, 4, f) != 4) {
+        fclose(f);
+        return -1;
+    }
+
     if (memcmp(sig, PACK_SIGNATURE, 4) != 0) {
         fclose(f);
         return -1;
     }
-    
+
     uint32_t version, num_objects;
-    fread(&version, 4, 1, f);
-    fread(&num_objects, 4, 1, f);
+    if (fread(&version, 4, 1, f) != 1 || fread(&num_objects, 4, 1, f) != 1) {
+        fclose(f);
+        return -1;
+    }
+
     num_objects = ntohl(num_objects);
-    
+
     for (uint32_t i = 0; i < num_objects; i++) {
         uint32_t type, size;
         hash_t hash;
-        
-        fread(&type, 4, 1, f);
-        fread(&size, 4, 1, f);
-        fread(hash.hash, HASH_SIZE, 1, f);
-        
+
+        if (fread(&type, 4, 1, f) != 1 ||
+            fread(&size, 4, 1, f) != 1 ||
+            fread(hash.hash, HASH_SIZE, 1, f) != 1) {
+            fclose(f);
+            return -1;
+        }
+
         type = ntohl(type);
         size = ntohl(size);
-        
+
         uint32_t comp_size;
-        fread(&comp_size, 4, 1, f);
+        if (fread(&comp_size, 4, 1, f) != 1) {
+            fclose(f);
+            return -1;
+        }
         comp_size = ntohl(comp_size);
-        
+
         unsigned char *compressed = malloc(comp_size);
-        fread(compressed, comp_size, 1, f);
-        
+        if (!compressed) {
+            fclose(f);
+            return -1;
+        }
+
+        if (fread(compressed, comp_size, 1, f) != 1) {
+            free(compressed);
+            fclose(f);
+            return -1;
+        }
+
         uLongf uncompressed_size = size;
         unsigned char *uncompressed = malloc(uncompressed_size);
-        uncompress(uncompressed, &uncompressed_size, compressed, comp_size);
-        
+        if (!uncompressed) {
+            free(compressed);
+            fclose(f);
+            return -1;
+        }
+
+        int uncompress_result = uncompress(uncompressed, &uncompressed_size, compressed, comp_size);
+        if (uncompress_result != Z_OK) {
+            free(compressed);
+            free(uncompressed);
+            fclose(f);
+            return -1;
+        }
+
         object_t obj = { .data = (char*)uncompressed, .size = size, .type = type };
         hash_t verify_hash;
-        object_write(&obj, &verify_hash);
-        
+        if (object_write(&obj, &verify_hash) < 0) {
+            free(compressed);
+            free(uncompressed);
+            fclose(f);
+            return -1;
+        }
+
         free(compressed);
         free(uncompressed);
     }
-    
+
     fclose(f);
     return 0;
 }
