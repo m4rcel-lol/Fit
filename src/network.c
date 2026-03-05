@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <signal.h>
 #include <errno.h>
+#include <pthread.h>
 #include "fit.h"
 
 #define PROTOCOL_VERSION 1
@@ -19,6 +20,12 @@
 
 // Global flag for graceful shutdown
 static volatile sig_atomic_t daemon_running = 1;
+
+// Structure to pass client connection info to thread
+typedef struct {
+    int client_fd;
+    struct sockaddr_in client_addr;
+} client_info_t;
 
 // Signal handler for graceful shutdown
 static void handle_shutdown(int sig) {
@@ -57,6 +64,181 @@ static int set_socket_timeout(int sock, int seconds) {
         return -1;
     }
     return 0;
+}
+
+// Handle client connection (called from thread)
+static void handle_client(int client_fd, struct sockaddr_in client_addr) {
+    // Set timeout on client socket
+    if (set_socket_timeout(client_fd, SOCKET_TIMEOUT_SEC) < 0) {
+        fprintf(stderr, "Warning: Failed to set socket timeout\n");
+    }
+
+    printf("Client connected from %s\n", inet_ntoa(client_addr.sin_addr));
+
+    uint8_t version, cmd;
+    if (read(client_fd, &version, 1) != 1 || read(client_fd, &cmd, 1) != 1) {
+        fprintf(stderr, "Failed to read protocol header\n");
+        close(client_fd);
+        return;
+    }
+
+    if (version != PROTOCOL_VERSION) {
+        fprintf(stderr, "Protocol version mismatch: got %d, expected %d\n", version, PROTOCOL_VERSION);
+        close(client_fd);
+        return;
+    }
+
+    if (cmd == CMD_SEND_OBJECTS) {
+        printf("Receiving objects...\n");
+        char pack_file[256];
+        snprintf(pack_file, sizeof(pack_file), "/tmp/fit_recv_%d_%ld.pack", getpid(), (long)pthread_self());
+
+        FILE *f = fopen(pack_file, "wb");
+        if (!f) {
+            perror("Failed to create pack file");
+            close(client_fd);
+            return;
+        }
+
+        char buf[8192];
+        ssize_t n;
+        size_t total = 0;
+        while ((n = read(client_fd, buf, sizeof(buf))) > 0) {
+            size_t written = fwrite(buf, 1, n, f);
+            if (written != (size_t)n) {
+                fprintf(stderr, "Failed to write to pack file\n");
+                fclose(f);
+                close(client_fd);
+                unlink(pack_file);
+                return;
+            }
+            total += n;
+        }
+        fclose(f);
+
+        printf("Received %zu bytes\n", total);
+
+        if (unpack_objects(pack_file) == 0) {
+            printf("Successfully unpacked objects\n");
+            hash_t latest_commit = {0};
+            FILE *pf = fopen(pack_file, "rb");
+            if (pf) {
+                char sig[4];
+                if (fread(sig, 1, 4, pf) == 4) {
+                    uint32_t version_val, num_objects;
+                    if (fread(&version_val, 4, 1, pf) == 1 && fread(&num_objects, 4, 1, pf) == 1) {
+                        num_objects = ntohl(num_objects);
+
+                        if (num_objects > 0) {
+                            uint32_t type, size;
+                            if (fread(&type, 4, 1, pf) == 1 &&
+                                fread(&size, 4, 1, pf) == 1 &&
+                                fread(latest_commit.hash, HASH_SIZE, 1, pf) == 1) {
+
+                                if (ntohl(type) == OBJ_COMMIT) {
+                                    if (ref_write("heads/main", &latest_commit) == 0) {
+                                        printf("Updated main branch\n");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                fclose(pf);
+            }
+        } else {
+            fprintf(stderr, "Failed to unpack objects\n");
+        }
+        unlink(pack_file);
+    } else if (cmd == CMD_REQUEST_OBJECTS) {
+        printf("Sending objects...\n");
+        size_t branch_len;
+        if (read(client_fd, &branch_len, sizeof(branch_len)) != sizeof(branch_len)) {
+            fprintf(stderr, "Failed to read branch length\n");
+            close(client_fd);
+            return;
+        }
+
+        char branch[256] = {0};
+        if (branch_len >= sizeof(branch)) {
+            fprintf(stderr, "Branch name too long: %zu\n", branch_len);
+            close(client_fd);
+            return;
+        }
+
+        if (branch_len > 0 && read(client_fd, branch, branch_len) != (ssize_t)branch_len) {
+            fprintf(stderr, "Failed to read branch name\n");
+            close(client_fd);
+            return;
+        }
+
+        char ref_name[256];
+        snprintf(ref_name, sizeof(ref_name), "heads/%s", branch);
+
+        hash_t hash;
+        if (ref_read(ref_name, &hash) == 0) {
+            hash_t hashes[256];
+            int count = 0;
+
+            hash_t current = hash;
+            while (count < 256) {
+                hashes[count++] = current;
+
+                commit_t commit;
+                if (commit_read(&current, &commit) < 0) break;
+
+                int has_parent = 0;
+                for (int i = 0; i < HASH_SIZE; i++) {
+                    if (commit.parent.hash[i]) {
+                        has_parent = 1;
+                        break;
+                    }
+                }
+
+                if (!has_parent) {
+                    commit_free(&commit);
+                    break;
+                }
+
+                current = commit.parent;
+                commit_free(&commit);
+            }
+
+            char pack_file[256];
+            snprintf(pack_file, sizeof(pack_file), "/tmp/fit_send_%d_%ld.pack", getpid(), (long)pthread_self());
+            if (pack_objects(hashes, count, pack_file) == 0) {
+                FILE *f = fopen(pack_file, "rb");
+                if (f) {
+                    char buf[8192];
+                    size_t n;
+                    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+                        if (write_all(client_fd, buf, n) != (ssize_t)n) {
+                            fprintf(stderr, "Failed to send data to client\n");
+                            break;
+                        }
+                    }
+                    fclose(f);
+                    unlink(pack_file);
+                } else {
+                    fprintf(stderr, "Failed to open pack file for reading\n");
+                }
+            } else {
+                fprintf(stderr, "Failed to create pack file\n");
+            }
+        } else {
+            fprintf(stderr, "Branch '%s' not found\n", branch);
+        }
+    }
+
+    close(client_fd);
+}
+
+// Thread entry point
+static void *client_thread(void *arg) {
+    client_info_t *info = (client_info_t *)arg;
+    handle_client(info->client_fd, info->client_addr);
+    free(info);
+    return NULL;
 }
 
 int net_daemon_start(int port) {
@@ -99,7 +281,7 @@ int net_daemon_start(int port) {
         return -1;
     }
 
-    printf("Fit daemon listening on port %d\n", port);
+    printf("Fit daemon listening on port %d (multi-threaded)\n", port);
     printf("Press Ctrl+C to stop\n");
 
     while (daemon_running) {
@@ -113,170 +295,30 @@ int net_daemon_start(int port) {
             continue;
         }
 
-        // Set timeout on client socket
-        if (set_socket_timeout(client_fd, SOCKET_TIMEOUT_SEC) < 0) {
-            fprintf(stderr, "Warning: Failed to set socket timeout\n");
-        }
-
-        printf("Client connected from %s\n", inet_ntoa(client_addr.sin_addr));
-
-        uint8_t version, cmd;
-        if (read(client_fd, &version, 1) != 1 || read(client_fd, &cmd, 1) != 1) {
-            fprintf(stderr, "Failed to read protocol header\n");
+        // Allocate client info structure
+        client_info_t *info = malloc(sizeof(client_info_t));
+        if (!info) {
+            fprintf(stderr, "Failed to allocate memory for client info\n");
             close(client_fd);
             continue;
         }
 
-        if (version != PROTOCOL_VERSION) {
-            fprintf(stderr, "Protocol version mismatch: got %d, expected %d\n", version, PROTOCOL_VERSION);
+        info->client_fd = client_fd;
+        info->client_addr = client_addr;
+
+        // Create detached thread to handle client
+        pthread_t thread;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+        if (pthread_create(&thread, &attr, client_thread, info) != 0) {
+            fprintf(stderr, "Failed to create thread for client\n");
             close(client_fd);
-            continue;
+            free(info);
         }
 
-        if (cmd == CMD_SEND_OBJECTS) {
-            printf("Receiving objects...\n");
-            char pack_file[256];
-            snprintf(pack_file, sizeof(pack_file), "/tmp/fit_recv_%d.pack", getpid());
-
-            FILE *f = fopen(pack_file, "wb");
-            if (!f) {
-                perror("Failed to create pack file");
-                close(client_fd);
-                continue;
-            }
-
-            char buf[8192];
-            ssize_t n;
-            size_t total = 0;
-            while ((n = read(client_fd, buf, sizeof(buf))) > 0) {
-                size_t written = fwrite(buf, 1, n, f);
-                if (written != (size_t)n) {
-                    fprintf(stderr, "Failed to write to pack file\n");
-                    fclose(f);
-                    close(client_fd);
-                    unlink(pack_file);
-                    goto next_client;
-                }
-                total += n;
-            }
-            fclose(f);
-
-            printf("Received %zu bytes\n", total);
-
-            if (unpack_objects(pack_file) == 0) {
-                printf("Successfully unpacked objects\n");
-                hash_t latest_commit = {0};
-                FILE *pf = fopen(pack_file, "rb");
-                if (pf) {
-                    char sig[4];
-                    if (fread(sig, 1, 4, pf) == 4) {
-                        uint32_t version, num_objects;
-                        if (fread(&version, 4, 1, pf) == 1 && fread(&num_objects, 4, 1, pf) == 1) {
-                            num_objects = ntohl(num_objects);
-
-                            if (num_objects > 0) {
-                                uint32_t type, size;
-                                if (fread(&type, 4, 1, pf) == 1 &&
-                                    fread(&size, 4, 1, pf) == 1 &&
-                                    fread(latest_commit.hash, HASH_SIZE, 1, pf) == 1) {
-
-                                    if (ntohl(type) == OBJ_COMMIT) {
-                                        if (ref_write("heads/main", &latest_commit) == 0) {
-                                            printf("Updated main branch\n");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    fclose(pf);
-                }
-            } else {
-                fprintf(stderr, "Failed to unpack objects\n");
-            }
-            unlink(pack_file);
-        } else if (cmd == CMD_REQUEST_OBJECTS) {
-            printf("Sending objects...\n");
-            size_t branch_len;
-            if (read(client_fd, &branch_len, sizeof(branch_len)) != sizeof(branch_len)) {
-                fprintf(stderr, "Failed to read branch length\n");
-                close(client_fd);
-                continue;
-            }
-
-            char branch[256] = {0};
-            if (branch_len >= sizeof(branch)) {
-                fprintf(stderr, "Branch name too long: %zu\n", branch_len);
-                close(client_fd);
-                continue;
-            }
-
-            if (branch_len > 0 && read(client_fd, branch, branch_len) != (ssize_t)branch_len) {
-                fprintf(stderr, "Failed to read branch name\n");
-                close(client_fd);
-                continue;
-            }
-
-            char ref_name[256];
-            snprintf(ref_name, sizeof(ref_name), "heads/%s", branch);
-
-            hash_t hash;
-            if (ref_read(ref_name, &hash) == 0) {
-                hash_t hashes[256];
-                int count = 0;
-
-                hash_t current = hash;
-                while (count < 256) {
-                    hashes[count++] = current;
-
-                    commit_t commit;
-                    if (commit_read(&current, &commit) < 0) break;
-
-                    int has_parent = 0;
-                    for (int i = 0; i < HASH_SIZE; i++) {
-                        if (commit.parent.hash[i]) {
-                            has_parent = 1;
-                            break;
-                        }
-                    }
-
-                    if (!has_parent) {
-                        commit_free(&commit);
-                        break;
-                    }
-
-                    current = commit.parent;
-                    commit_free(&commit);
-                }
-
-                char pack_file[256];
-                snprintf(pack_file, sizeof(pack_file), "/tmp/fit_send_%d.pack", getpid());
-                if (pack_objects(hashes, count, pack_file) == 0) {
-                    FILE *f = fopen(pack_file, "rb");
-                    if (f) {
-                        char buf[8192];
-                        size_t n;
-                        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-                            if (write_all(client_fd, buf, n) != (ssize_t)n) {
-                                fprintf(stderr, "Failed to send data to client\n");
-                                break;
-                            }
-                        }
-                        fclose(f);
-                        unlink(pack_file);
-                    } else {
-                        fprintf(stderr, "Failed to open pack file for reading\n");
-                    }
-                } else {
-                    fprintf(stderr, "Failed to create pack file\n");
-                }
-            } else {
-                fprintf(stderr, "Branch '%s' not found\n", branch);
-            }
-        }
-
-next_client:
-        close(client_fd);
+        pthread_attr_destroy(&attr);
     }
 
     printf("Daemon stopped\n");

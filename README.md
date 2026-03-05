@@ -402,6 +402,7 @@ fit push localhost main
 2. **Compression**: zlib level 6 (default) balances speed/size
 3. **Network**: Streams packfiles, no chunking yet
 4. **Memory**: Loads full objects into memory (optimize for large files later)
+5. **Multi-threading**: Daemon now supports concurrent client connections via pthreads
 
 ## Limitations & Future Work
 
@@ -412,7 +413,7 @@ fit push localhost main
 - No complex merge algorithm (fast-forward only)
 - No encryption (transport or storage)
 - No authentication
-- Single-threaded daemon
+- ~~Single-threaded daemon~~ **Multi-threaded daemon implemented**
 - No index v2 format (simple text format)
 
 ### Stretch Goals
@@ -421,7 +422,7 @@ fit push localhost main
 - [ ] End-to-end encryption
 - [ ] Signed commits (GPG)
 - [ ] File chunking for large files
-- [ ] Multi-threaded daemon
+- [x] Multi-threaded daemon - **✓ Implemented**
 - [ ] Smart protocol negotiation
 - [ ] Shallow clones
 - [ ] Submodule support
