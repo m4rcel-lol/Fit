@@ -2,7 +2,89 @@
 
 All notable changes and improvements to the Fit project.
 
-## [1.1.0] - 2026-03-04
+## [2.0.0] - 2026-03-05
+
+### Major Changes
+
+**BREAKING CHANGE:** Web interface completely removed - Fit is now CLI-only for improved focus and simplicity
+
+### Added
+
+#### New Commands
+- **`fit tag`** - Full tag management
+  - Create tags: `fit tag v1.0.0` or `fit tag create v1.0.0 -m "Release"`
+  - List tags: `fit tag`
+  - Delete tags: `fit tag delete v1.0.0`
+  - Tag resolution for referencing commits
+
+- **`fit remote`** - Remote repository management
+  - Add remotes: `fit remote add origin server.local`
+  - List remotes: `fit remote` or `fit remote list`
+  - Remove remotes: `fit remote remove origin`
+  - Remote URL storage in `.fit/config`
+
+- **`fit stash`** - Save and restore uncommitted changes
+  - Save: `fit stash` or `fit stash save -m "WIP"`
+  - List: `fit stash list`
+  - Apply: `fit stash pop`
+  - Remove: `fit stash drop <stash-name>`
+  - Timestamp-based stash management
+
+- **`fit merge`** - Branch merging
+  - Fast-forward merge: `fit merge feature-branch`
+  - Automatic conflict detection
+  - Already up-to-date detection
+  - Tree checkout on successful merge
+
+#### Improvements
+- **Enhanced `fit status`** command
+  - Shows HEAD commit with hash and message
+  - Color-coded output (green for modified files)
+  - File hashes displayed for staged changes
+  - Helpful hints about what to do next
+  - Better visual hierarchy
+
+- **Better network error handling**
+  - Detailed error messages with `perror()`
+  - Connection status logging
+  - Data transfer progress (bytes sent/received)
+  - Failed operation explanations
+  - Client connection notifications
+  - Protocol version validation logging
+
+- **Improved logging**
+  - Object transfer progress
+  - Branch update confirmations
+  - Pack file operations status
+  - Connection establishment messages
+
+### Removed
+- ❌ Web interface (both standard and enhanced editions)
+- ❌ `make web` and `make web-enhanced` targets
+- ❌ `fitweb` and `fitweb-enhanced` binaries
+- ❌ SQLite dependency (was only for web authentication)
+- ❌ Web startup scripts (`start_web.sh`, `start_web_enhanced.sh`)
+- ❌ Port 8080 exposure in Docker
+- ❌ Web-related documentation sections
+
+### Changed
+- Docker now only runs daemon (no web interface)
+- Simplified installation (no SQLite dependency)
+- Updated all documentation to remove web references
+- Dockerfile optimized for daemon-only operation
+- docker-compose.yml simplified to single service
+- Makefile streamlined without web targets
+
+### Fixed
+- Network operations now check return values properly
+- Better socket error handling and cleanup
+- Pack file creation errors now reported to user
+- File operations validated before use
+- Improved error propagation in network stack
+
+---
+
+## [1.1.0] - 2024-12-XX
 
 ### Added - Core Features
 
@@ -15,7 +97,7 @@ All notable changes and improvements to the Fit project.
   - Understand project evolution
 - **Implementation**: Line-by-line diff for text files, tree comparison for directories
 
-### Added - Enhanced Web Interface
+### Added - Enhanced Web Interface (REMOVED in v2.0.0)
 
 #### New Enhanced Web Edition (`fitweb-enhanced`)
 A significantly improved web interface with modern features:
@@ -27,131 +109,73 @@ A significantly improved web interface with modern features:
 - 🎨 **Improved Visual Design**: Better spacing, colors, and animations
 
 **New Pages**
-- 📈 **Statistics Dashboard**:
-  - Total commits count
-  - Object count in repository
-  - Branch count
-  - Repository size on disk
-  - Visual stat cards with icons
+- 📈 **Statistics Dashboard**
+- 🌿 **Branch Manager**
+- 📄 **File Viewer**
 
-- 🌿 **Branch Manager**:
-  - List all branches
-  - Highlight current branch
-  - Clean, organized display
+**NOTE:** All web interface features were removed in v2.0.0 to focus on CLI experience
 
-- 📄 **File Viewer**:
-  - Syntax-aware file display
-  - Line numbers for easy reference
-  - Download individual files
-  - Better code readability
+### Added - Developer Experience
 
-**Improvements**
-- Better breadcrumb navigation
-- File type icons (C, Python, JS, Markdown, etc.)
-- Smoother hover effects and transitions
-- Improved empty states
-- Better error handling
-- URL decoding for special characters
-- HTML escaping for security
+#### Bash Completion Script
+- Command completion
+- Branch name completion
+- Commit hash completion
+- Context-aware suggestions
+- **Usage**: `source fit-completion.bash`
 
-**How to Use**
-```bash
-# Build enhanced edition
-make web-enhanced
-
-# Or use startup script
-./start_web_enhanced.sh
-```
-
-### Improved - Build System
-
-#### Makefile Enhancements
-- Support for multiple web interface versions
-- Separate build targets:
-  - `make web` - Standard interface
-  - `make web-enhanced` - Enhanced interface
-  - `make all` - Builds everything
-- Better source file filtering
-- Cleaner build output
-
-### Improved - Documentation
-
-#### README Updates
-- Documented new `diff` command with examples
-- Added Enhanced Web Interface section
-- Feature comparison between standard and enhanced web UI
-- Clear usage examples
-- Better organization
-
-#### New Files
-- `start_web_enhanced.sh` - Convenient startup script for enhanced web
-- `CHANGELOG.md` - This file, tracking all improvements
-- `.gitignore` - Proper exclusion of build artifacts
+#### Automated Installer (`install.sh`)
+- Detects OS automatically (Arch, Alpine, Debian, Ubuntu, Fedora)
+- Installs all dependencies
+- Builds the project
+- Runs tests
+- Installs to `/usr/local/bin`
+- Optional bash completion installation
 
 ### Technical Improvements
 
-#### Code Organization
-- New `src/diff.c` - Modular diff implementation
-- New `src/web_enhanced.c` - Enhanced web interface
-- Updated `include/fit.h` - Added diff function declarations
-- Updated `src/main.c` - Integrated diff command
+**Build System**
+- Multi-target Makefile
+- Better dependency management
+- Cleaner output
 
-#### Code Quality
-- Added proper gitignore for build artifacts
-- Separated web interface versions for maintainability
-- Better code comments
-- Improved function organization
+**Code Quality**
+- Modular diff implementation
+- Better function organization
+- Improved comments
+- `.gitignore` for build artifacts
 
-### Build Artifacts Now Excluded
-- `/bin/` directory
-- `/obj/` directory
-- `*.o` object files
-- `fitweb.db` database
-- Test artifacts
+---
 
-## [1.0.0] - 2026-02-28
+## [1.0.0] - Initial Release
 
-### Initial Release
-- Content-addressable storage with SHA-256
+### Core Features
+- Content-addressable storage using SHA-256
 - Object model: blobs, trees, commits
 - zlib compression
-- Index/staging area
-- Branches and HEAD management
-- Commit history traversal
-- Network protocol for push/pull
+- Custom TCP network protocol
+- Distributed backup between machines
+- Branch management
 - Garbage collection
-- Web interface (standard edition)
-- Docker deployment support
-- Complete test suite
 
----
+### Commands
+- `fit init` - Initialize repository
+- `fit add` - Stage files
+- `fit commit` - Create commits
+- `fit log` - View history
+- `fit status` - Check status
+- `fit branch` - Branch management
+- `fit checkout` - Switch branches
+- `fit push` - Push to remote
+- `fit pull` - Pull from remote
+- `fit clone` - Clone repository
+- `fit restore` - Restore files
+- `fit daemon` - Start server
+- `fit gc` - Garbage collection
+- `fit snapshot` - Quick backup
 
-## Future Roadmap
-
-### Planned Features
-- [ ] `merge` command for branch merging
-- [ ] `tag` command for release management
-- [ ] Configuration file support (`.fitconfig`)
-- [ ] Improved diff with context lines
-- [ ] Syntax highlighting in web interface
-- [ ] User management in web interface
-- [ ] Dark/light theme toggle
-- [ ] Web-based commit viewing
-- [ ] API endpoints for programmatic access
-- [ ] Performance optimizations
-- [ ] Security enhancements (CSRF protection, rate limiting)
-
-### Long-term Goals
-- Delta compression
-- End-to-end encryption
-- GPG commit signing
-- Smart protocol negotiation
-- Shallow clones
-- Submodule support
-
----
-
-**Note**: Version numbers follow Semantic Versioning (SemVer): MAJOR.MINOR.PATCH
-- MAJOR: Incompatible API changes
-- MINOR: New features (backward compatible)
-- PATCH: Bug fixes (backward compatible)
+### Architecture
+- SHA-256 hashing (vs Git's SHA-1)
+- Simplified protocol
+- Backup-first design
+- Minimal dependencies (zlib, OpenSSL)

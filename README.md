@@ -71,7 +71,7 @@ Commands:
 
 ```bash
 # Install dependencies
-sudo pacman -S gcc make zlib openssl sqlite
+sudo pacman -S gcc make zlib openssl
 
 # Build
 make
@@ -84,7 +84,7 @@ sudo make install
 
 ```bash
 # Install dependencies
-apk add gcc musl-dev make zlib-dev openssl-dev sqlite-dev
+apk add gcc musl-dev make zlib-dev openssl-dev
 
 # Build
 make
@@ -92,97 +92,6 @@ make
 # Install
 make install
 ```
-
-## Web Interface
-
-Fit includes two web interfaces for easy repository browsing:
-
-### Standard Web Interface
-
-```bash
-# Build and start web interface
-make web
-
-# Or use the startup script
-chmod +x start_web.sh
-./start_web.sh
-```
-
-### Enhanced Web Interface (NEW! ✨)
-
-```bash
-# Build and start enhanced web interface
-make web-enhanced
-
-# Or use the enhanced startup script
-chmod +x start_web_enhanced.sh
-./start_web_enhanced.sh
-```
-
-Access at `http://localhost:8080`
-
-**Login credentials:**
-- Username: `m5rcel`
-- Password: `M@rc8l1257`
-
-**Standard Features:**
-- Modern GitHub-style dark theme
-- Browse commit history with detailed information
-- Navigate repository files with file browser
-- Download individual files
-- Download full repository archive
-- Session-based authentication with SQLite
-- Responsive design
-
-**Enhanced Edition Features:**
-- ✨ **Commit search** - Quickly find commits by message or author
-- 📈 **Repository statistics dashboard** - View commit count, object count, branches, and repo size
-- 🌿 **Branch management interface** - View and manage all branches
-- 📄 **File viewer with line numbers** - View source files with syntax-aware display
-- 📱 **Improved mobile responsiveness** - Better experience on phones and tablets
-- 🎨 **Modern UI enhancements** - Smoother animations and better visual hierarchy
-- 🔍 **Better navigation** - Quick access to all features with improved header
-
-**Security Note:** The web interface is for local/trusted network use. For production, use behind reverse proxy with HTTPS.
-
-## Docker Deployment (24/7 Server)
-
-Run both the Fit daemon and web interface 24/7 with Docker:
-
-```bash
-# Build and start both servers
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop servers
-docker-compose down
-```
-
-**Auto-start on boot (systemd):**
-
-```bash
-# Install as system service
-chmod +x install_service.sh
-./install_service.sh
-
-# Check status
-sudo systemctl status fit-server
-
-# View logs
-docker-compose logs -f
-```
-
-This will:
-- Start Fit daemon on port 9418
-- Start web interface on port 8080
-- Auto-restart on failure
-- Auto-start on system boot
-
-Access:
-- Web UI: `http://localhost:8080`
-- Daemon: `fit push localhost main`
 
 ## Usage
 
@@ -204,7 +113,7 @@ fit log
 # Check status
 fit status
 
-# Compare commits (NEW! ✨)
+# Compare commits
 fit diff <commit1> <commit2>
 ```
 
@@ -233,6 +142,57 @@ fit branch feature
 
 # Switch branch (restores files)
 fit checkout feature
+
+# Merge branch
+fit merge feature
+```
+
+### Tag Management
+
+```bash
+# List tags
+fit tag
+
+# Create tag
+fit tag v1.0.0
+
+# Create tag with message
+fit tag create v1.0.0 -m "Release version 1.0.0"
+
+# Delete tag
+fit tag delete v1.0.0
+```
+
+### Remote Management
+
+```bash
+# List remotes
+fit remote
+
+# Add remote
+fit remote add origin server.local
+
+# Remove remote
+fit remote remove origin
+```
+
+### Stash
+
+```bash
+# Save uncommitted changes
+fit stash
+
+# Save with message
+fit stash save -m "Work in progress"
+
+# List stashes
+fit stash list
+
+# Apply and remove stash
+fit stash pop
+
+# Remove specific stash
+fit stash drop stash@1234567890
 ```
 
 ### Backup Mode
@@ -279,6 +239,43 @@ fit gc
 ```
 
 ## Docker Deployment
+
+Run the Fit daemon 24/7 with Docker:
+
+```bash
+# Build and start server
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop server
+docker-compose down
+```
+
+**Auto-start on boot (systemd):**
+
+```bash
+# Install as system service
+chmod +x install_service.sh
+./install_service.sh
+
+# Check status
+sudo systemctl status fit-server
+
+# View logs
+docker-compose logs -f
+```
+
+This will:
+- Start Fit daemon on port 9418
+- Auto-restart on failure
+- Auto-start on system boot
+
+Access:
+- Daemon: `fit push localhost main`
+
+## Docker Deployment (Alt Method)
 
 ### Build and Run
 
@@ -412,7 +409,7 @@ fit push localhost main
 
 - No delta compression (stores full objects)
 - No sparse checkout
-- No merge algorithm (manual only)
+- No complex merge algorithm (fast-forward only)
 - No encryption (transport or storage)
 - No authentication
 - Single-threaded daemon
@@ -425,10 +422,10 @@ fit push localhost main
 - [ ] Signed commits (GPG)
 - [ ] File chunking for large files
 - [ ] Multi-threaded daemon
-- [ ] Web UI for browsing history
 - [ ] Smart protocol negotiation
 - [ ] Shallow clones
 - [ ] Submodule support
+- [ ] Three-way merge algorithm
 
 ## Security Notes
 

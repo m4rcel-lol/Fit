@@ -22,6 +22,10 @@ static void cmd_restore(int argc, char **argv);
 static void cmd_gc(void);
 static void cmd_snapshot(int argc, char **argv);
 static void cmd_diff(int argc, char **argv);
+static void cmd_tag(int argc, char **argv);
+static void cmd_remote(int argc, char **argv);
+static void cmd_stash(int argc, char **argv);
+static void cmd_merge(int argc, char **argv);
 static void cmd_help(void);
 static void cmd_credits(void);
 
@@ -46,6 +50,10 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[1], "gc") == 0) cmd_gc();
     else if (strcmp(argv[1], "snapshot") == 0) cmd_snapshot(argc - 2, argv + 2);
     else if (strcmp(argv[1], "diff") == 0) cmd_diff(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "tag") == 0) cmd_tag(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "remote") == 0) cmd_remote(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "stash") == 0) cmd_stash(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "merge") == 0) cmd_merge(argc - 2, argv + 2);
     else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) cmd_help();
     else if (strcmp(argv[1], "credits") == 0) cmd_credits();
     else {
@@ -179,17 +187,35 @@ static void cmd_status(void) {
     } else {
         printf("HEAD detached\n");
     }
-    
-    index_entry_t *entries;
-    index_read(&entries);
-    
-    if (entries) {
-        printf("\nChanges to be committed:\n");
-        for (index_entry_t *e = entries; e; e = e->next) {
-            printf("  %s\n", e->path);
+
+    /* Show HEAD commit info */
+    hash_t head_hash;
+    if (ref_resolve_head(&head_hash) == 0) {
+        commit_t commit;
+        if (commit_read(&head_hash, &commit) == 0) {
+            char hex[HASH_HEX_SIZE + 1];
+            hash_to_hex(&head_hash, hex);
+            printf("HEAD at %.8s: %s\n", hex, commit.message);
+            commit_free(&commit);
         }
     }
-    
+
+    index_entry_t *entries;
+    index_read(&entries);
+
+    if (entries) {
+        printf("\nChanges to be committed:\n");
+        printf("  (use \"fit commit -m <message>\" to commit)\n\n");
+        for (index_entry_t *e = entries; e; e = e->next) {
+            char hex[HASH_HEX_SIZE + 1];
+            hash_to_hex(&e->hash, hex);
+            printf("  \033[32mmodified:\033[0m   %-30s (%.8s)\n", e->path, hex);
+        }
+    } else {
+        printf("\nNo changes staged for commit\n");
+        printf("  (use \"fit add <file>\" to stage changes)\n");
+    }
+
     index_free(entries);
 }
 
@@ -427,6 +453,243 @@ static void cmd_restore(int argc, char **argv) {
     }
 }
 
+static void cmd_diff(int argc, char **argv) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: fit diff <commit1> <commit2>\n");
+        fprintf(stderr, "   or: fit diff <commit>  (compare with HEAD)\n");
+        return;
+    }
+
+    hash_t hash1, hash2;
+
+    if (argc == 1) {
+        /* Compare specified commit with HEAD */
+        if (hex_to_hash(argv[0], &hash1) < 0) {
+            fprintf(stderr, "Invalid commit hash: %s\n", argv[0]);
+            return;
+        }
+        if (ref_resolve_head(&hash2) < 0) {
+            fprintf(stderr, "Failed to resolve HEAD\n");
+            return;
+        }
+    } else {
+        /* Compare two commits */
+        if (hex_to_hash(argv[0], &hash1) < 0) {
+            fprintf(stderr, "Invalid commit hash: %s\n", argv[0]);
+            return;
+        }
+        if (hex_to_hash(argv[1], &hash2) < 0) {
+            fprintf(stderr, "Invalid commit hash: %s\n", argv[1]);
+            return;
+        }
+    }
+
+    if (diff_commits(&hash1, &hash2) < 0) {
+        fprintf(stderr, "Failed to diff commits\n");
+    }
+}
+
+static void cmd_tag(int argc, char **argv) {
+    if (argc == 0) {
+        /* List tags */
+        if (tag_list() == 0) {
+            printf("No tags found\n");
+        }
+        return;
+    }
+
+    if (strcmp(argv[0], "create") == 0 || strcmp(argv[0], "-a") == 0) {
+        if (argc < 2) {
+            fprintf(stderr, "Usage: fit tag create <name> [-m <message>]\n");
+            return;
+        }
+
+        const char *tag_name = argv[1];
+        const char *message = NULL;
+
+        /* Check for message */
+        if (argc >= 4 && strcmp(argv[2], "-m") == 0) {
+            message = argv[3];
+        }
+
+        /* Get current HEAD commit */
+        hash_t commit_hash;
+        if (ref_resolve_head(&commit_hash) < 0) {
+            fprintf(stderr, "No commits yet\n");
+            return;
+        }
+
+        if (tag_create(tag_name, &commit_hash, message) == 0) {
+            char hex[HASH_HEX_SIZE + 1];
+            hash_to_hex(&commit_hash, hex);
+            printf("Created tag '%s' at %.8s\n", tag_name, hex);
+        }
+    } else if (strcmp(argv[0], "delete") == 0 || strcmp(argv[0], "-d") == 0) {
+        if (argc < 2) {
+            fprintf(stderr, "Usage: fit tag delete <name>\n");
+            return;
+        }
+
+        if (tag_delete(argv[1]) == 0) {
+            printf("Deleted tag '%s'\n", argv[1]);
+        }
+    } else {
+        /* Assume it's a tag name to create */
+        const char *tag_name = argv[0];
+        hash_t commit_hash;
+
+        if (ref_resolve_head(&commit_hash) < 0) {
+            fprintf(stderr, "No commits yet\n");
+            return;
+        }
+
+        if (tag_create(tag_name, &commit_hash, NULL) == 0) {
+            char hex[HASH_HEX_SIZE + 1];
+            hash_to_hex(&commit_hash, hex);
+            printf("Created tag '%s' at %.8s\n", tag_name, hex);
+        }
+    }
+}
+
+static void cmd_remote(int argc, char **argv) {
+    if (argc == 0) {
+        /* List remotes */
+        if (remote_list() == 0) {
+            printf("No remotes configured\n");
+        }
+        return;
+    }
+
+    if (strcmp(argv[0], "add") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "Usage: fit remote add <name> <url>\n");
+            return;
+        }
+
+        if (remote_add(argv[1], argv[2]) == 0) {
+            printf("Added remote '%s' -> %s\n", argv[1], argv[2]);
+        }
+    } else if (strcmp(argv[0], "remove") == 0 || strcmp(argv[0], "rm") == 0) {
+        if (argc < 2) {
+            fprintf(stderr, "Usage: fit remote remove <name>\n");
+            return;
+        }
+
+        if (remote_remove(argv[1]) == 0) {
+            printf("Removed remote '%s'\n", argv[1]);
+        }
+    } else if (strcmp(argv[0], "list") == 0 || strcmp(argv[0], "-v") == 0) {
+        if (remote_list() == 0) {
+            printf("No remotes configured\n");
+        }
+    } else {
+        fprintf(stderr, "Unknown remote command: %s\n", argv[0]);
+        fprintf(stderr, "Usage: fit remote [add|remove|list]\n");
+    }
+}
+
+static void cmd_stash(int argc, char **argv) {
+    if (argc == 0) {
+        /* Save stash with default message */
+        stash_save("WIP: uncommitted changes");
+        return;
+    }
+
+    if (strcmp(argv[0], "save") == 0) {
+        const char *message = "WIP: uncommitted changes";
+        if (argc >= 3 && strcmp(argv[1], "-m") == 0) {
+            message = argv[2];
+        }
+        stash_save(message);
+    } else if (strcmp(argv[0], "list") == 0) {
+        stash_list();
+    } else if (strcmp(argv[0], "pop") == 0) {
+        if (argc >= 2) {
+            stash_pop(argv[1]);
+        } else {
+            stash_pop(NULL);
+        }
+    } else if (strcmp(argv[0], "drop") == 0) {
+        if (argc < 2) {
+            fprintf(stderr, "Usage: fit stash drop <stash-name>\n");
+            return;
+        }
+        stash_drop(argv[1]);
+    } else {
+        fprintf(stderr, "Unknown stash command: %s\n", argv[0]);
+        fprintf(stderr, "Usage: fit stash [save|list|pop|drop]\n");
+    }
+}
+
+static void cmd_merge(int argc, char **argv) {
+    if (argc < 1) {
+        fprintf(stderr, "Usage: fit merge <branch>\n");
+        return;
+    }
+
+    const char *branch_name = argv[0];
+
+    /* Get current branch */
+    char *current_branch = ref_current_branch();
+    if (!current_branch) {
+        fprintf(stderr, "Not currently on a branch\n");
+        return;
+    }
+
+    /* Get current HEAD */
+    hash_t current_hash;
+    if (ref_resolve_head(&current_hash) < 0) {
+        fprintf(stderr, "Failed to resolve HEAD\n");
+        free(current_branch);
+        return;
+    }
+
+    /* Get target branch hash */
+    char ref_name[256];
+    snprintf(ref_name, sizeof(ref_name), "heads/%s", branch_name);
+
+    hash_t target_hash;
+    if (ref_read(ref_name, &target_hash) < 0) {
+        fprintf(stderr, "Branch '%s' not found\n", branch_name);
+        free(current_branch);
+        return;
+    }
+
+    /* Check if already up to date */
+    if (hash_equal(&current_hash, &target_hash)) {
+        printf("Already up to date.\n");
+        free(current_branch);
+        return;
+    }
+
+    /* Simple fast-forward merge: just update HEAD to target */
+    commit_t target_commit;
+    if (commit_read(&target_hash, &target_commit) < 0) {
+        fprintf(stderr, "Failed to read target commit\n");
+        free(current_branch);
+        return;
+    }
+
+    /* Checkout the target tree */
+    if (checkout_tree(&target_commit.tree, NULL) < 0) {
+        fprintf(stderr, "Failed to checkout tree\n");
+        commit_free(&target_commit);
+        free(current_branch);
+        return;
+    }
+
+    /* Update HEAD */
+    ref_update_head(&target_hash);
+
+    char hex[HASH_HEX_SIZE + 1];
+    hash_to_hex(&target_hash, hex);
+    printf("Fast-forward merge: %s -> %.8s\n", branch_name, hex);
+    printf("Merged '%s' into '%s'\n", branch_name, current_branch);
+
+    commit_free(&target_commit);
+    free(current_branch);
+}
+
 static void cmd_help(void) {
     printf("╔══════════════════════════════════════════════════════════════╗\n");
     printf("║                    FIT - Filesystem Inside Terminal          ║\n");
@@ -444,6 +707,10 @@ static void cmd_help(void) {
     printf("  diff <commit1> <commit2>  Show differences between commits\n");
     printf("  branch [name]             List or create branches\n");
     printf("  checkout <branch>         Switch to a branch and restore files\n");
+    printf("  merge <branch>            Merge a branch into current branch\n");
+    printf("  tag [name|-a|-d]          List, create, or delete tags\n");
+    printf("  remote [add|rm|list]      Manage remote repositories\n");
+    printf("  stash [save|pop|list]     Stash and restore changes\n");
     printf("  snapshot -m <message>     Quick backup of all files\n");
     printf("  push <host> <branch>      Push to remote server\n");
     printf("  pull <host> <branch>      Pull from remote server\n");
@@ -509,40 +776,4 @@ static void cmd_credits(void) {
     
     printf("  Built with ❤️  in C, designed for backups.\n");
     printf("  Because your filesystem belongs inside your terminal.\n\n");
-}
-
-static void cmd_diff(int argc, char **argv) {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: fit diff <commit1> <commit2>\n");
-        fprintf(stderr, "   or: fit diff <commit>  (compare with HEAD)\n");
-        return;
-    }
-
-    hash_t hash1, hash2;
-
-    if (argc == 1) {
-        /* Compare specified commit with HEAD */
-        if (hex_to_hash(argv[0], &hash1) < 0) {
-            fprintf(stderr, "Invalid commit hash: %s\n", argv[0]);
-            return;
-        }
-        if (ref_resolve_head(&hash2) < 0) {
-            fprintf(stderr, "Failed to resolve HEAD\n");
-            return;
-        }
-    } else {
-        /* Compare two commits */
-        if (hex_to_hash(argv[0], &hash1) < 0) {
-            fprintf(stderr, "Invalid commit hash: %s\n", argv[0]);
-            return;
-        }
-        if (hex_to_hash(argv[1], &hash2) < 0) {
-            fprintf(stderr, "Invalid commit hash: %s\n", argv[1]);
-            return;
-        }
-    }
-
-    if (diff_commits(&hash1, &hash2) < 0) {
-        fprintf(stderr, "Failed to diff commits\n");
-    }
 }
