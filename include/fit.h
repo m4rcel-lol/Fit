@@ -135,4 +135,7 @@ int stash_list(void);
 int stash_pop(const char *stash_name);
 int stash_drop(const char *stash_name);
 
+/* verify.c */
+int verify_repository(void);
+
 #endif

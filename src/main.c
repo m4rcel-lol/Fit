@@ -26,6 +26,7 @@ static void cmd_tag(int argc, char **argv);
 static void cmd_remote(int argc, char **argv);
 static void cmd_stash(int argc, char **argv);
 static void cmd_merge(int argc, char **argv);
+static void cmd_verify(void);
 static void cmd_help(void);
 static void cmd_credits(void);
 
@@ -54,6 +55,7 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[1], "remote") == 0) cmd_remote(argc - 2, argv + 2);
     else if (strcmp(argv[1], "stash") == 0) cmd_stash(argc - 2, argv + 2);
     else if (strcmp(argv[1], "merge") == 0) cmd_merge(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "verify") == 0) cmd_verify();
     else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) cmd_help();
     else if (strcmp(argv[1], "credits") == 0) cmd_credits();
     else {
@@ -727,6 +729,10 @@ static void cmd_merge(int argc, char **argv) {
     free(current_branch);
 }
 
+static void cmd_verify(void) {
+    verify_repository();
+}
+
 static void cmd_help(void) {
     printf("╔══════════════════════════════════════════════════════════════╗\n");
     printf("║                    FIT - Filesystem Inside Terminal          ║\n");
@@ -755,6 +761,7 @@ static void cmd_help(void) {
     printf("  restore <commit>          Restore files from commit\n");
     printf("  daemon --port <port>      Start server daemon\n");
     printf("  gc                        Run garbage collection\n");
+    printf("  verify                    Verify repository integrity\n");
     printf("  help                      Show this help message\n");
     printf("  credits                   Show credits and info\n\n");
     
