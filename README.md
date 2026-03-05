@@ -427,7 +427,7 @@ fit push localhost main
 
 - No delta compression (stores full objects)
 - No sparse checkout
-- No complex merge algorithm (fast-forward only)
+- ~~No complex merge algorithm (fast-forward only)~~ **Three-way merge implemented**
 - No encryption (transport or storage)
 - No authentication
 - ~~Single-threaded daemon~~ **Multi-threaded daemon implemented**
@@ -443,7 +443,7 @@ fit push localhost main
 - [x] Smart protocol negotiation - **✓ Implemented**
 - [ ] Shallow clones
 - [ ] Submodule support
-- [ ] Three-way merge algorithm
+- [x] Three-way merge algorithm - **✓ Implemented**
 
 ## Security Notes
 
