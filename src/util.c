@@ -37,23 +37,58 @@ int file_exists(const char *path) {
 char* read_file(const char *path, size_t *size) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
-    
-    fseek(f, 0, SEEK_END);
-    *size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    
-    char *data = malloc(*size);
-    fread(data, 1, *size, f);
+
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return NULL;
+    }
+
+    long file_size = ftell(f);
+    if (file_size < 0) {
+        fclose(f);
+        return NULL;
+    }
+    *size = (size_t)file_size;
+
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return NULL;
+    }
+
+    char *data = malloc(*size + 1);  // +1 for safety null terminator
+    if (!data) {
+        fclose(f);
+        return NULL;
+    }
+
+    size_t bytes_read = fread(data, 1, *size, f);
+    if (bytes_read != *size) {
+        free(data);
+        fclose(f);
+        return NULL;
+    }
+
+    data[*size] = '\0';  // Ensure null termination for text files
     fclose(f);
-    
+
     return data;
 }
 
 int write_file(const char *path, const void *data, size_t size) {
     FILE *f = fopen(path, "wb");
     if (!f) return -1;
-    
-    fwrite(data, 1, size, f);
-    fclose(f);
+
+    size_t written = fwrite(data, 1, size, f);
+    int flush_result = fflush(f);
+
+    if (written != size || flush_result != 0) {
+        fclose(f);
+        return -1;
+    }
+
+    if (fclose(f) != 0) {
+        return -1;
+    }
+
     return 0;
 }

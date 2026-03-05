@@ -26,6 +26,7 @@ static void cmd_tag(int argc, char **argv);
 static void cmd_remote(int argc, char **argv);
 static void cmd_stash(int argc, char **argv);
 static void cmd_merge(int argc, char **argv);
+static void cmd_verify(void);
 static void cmd_help(void);
 static void cmd_credits(void);
 
@@ -54,6 +55,7 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[1], "remote") == 0) cmd_remote(argc - 2, argv + 2);
     else if (strcmp(argv[1], "stash") == 0) cmd_stash(argc - 2, argv + 2);
     else if (strcmp(argv[1], "merge") == 0) cmd_merge(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "verify") == 0) cmd_verify();
     else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) cmd_help();
     else if (strcmp(argv[1], "credits") == 0) cmd_credits();
     else {
@@ -66,21 +68,44 @@ int main(int argc, char **argv) {
 }
 
 static void cmd_init(void) {
-    mkdirp(FIT_OBJECTS_DIR);
-    mkdirp(FIT_HEADS_DIR);
-    
+    if (mkdirp(FIT_OBJECTS_DIR) != 0) {
+        fprintf(stderr, "Error: Failed to create objects directory\n");
+        return;
+    }
+    if (mkdirp(FIT_HEADS_DIR) != 0) {
+        fprintf(stderr, "Error: Failed to create refs/heads directory\n");
+        return;
+    }
+
     FILE *f = fopen(FIT_HEAD_FILE, "w");
+    if (!f) {
+        fprintf(stderr, "Error: Failed to create HEAD file\n");
+        return;
+    }
     fprintf(f, "ref: refs/heads/main\n");
     fclose(f);
-    
+
     f = fopen(FIT_INDEX_FILE, "w");
+    if (!f) {
+        fprintf(stderr, "Error: Failed to create index file\n");
+        return;
+    }
     fclose(f);
-    
+
     printf("Initialized empty Fit repository in %s\n", FIT_DIR);
 }
 
 static void cmd_add(int argc, char **argv) {
+    if (argc == 0) {
+        fprintf(stderr, "Usage: fit add <file>...\n");
+        return;
+    }
+
     for (int i = 0; i < argc; i++) {
+        if (strlen(argv[i]) > 1024) {
+            fprintf(stderr, "Error: File path too long: %s\n", argv[i]);
+            continue;
+        }
         if (index_add(argv[i]) == 0) {
             printf("Added %s\n", argv[i]);
         } else {
@@ -116,23 +141,33 @@ static void cmd_commit(int argc, char **argv) {
         fprintf(stderr, "Usage: fit commit -m <message>\n");
         return;
     }
-    
+
+    if (strlen(argv[1]) == 0) {
+        fprintf(stderr, "Error: Commit message cannot be empty\n");
+        return;
+    }
+
+    if (strlen(argv[1]) > 8192) {
+        fprintf(stderr, "Error: Commit message too long (max 8192 characters)\n");
+        return;
+    }
+
     hash_t tree_hash = build_tree_from_index();
-    
+
     commit_t commit = {0};
     commit.tree = tree_hash;
-    
+
     hash_t parent_hash;
     if (ref_resolve_head(&parent_hash) == 0) {
         commit.parent = parent_hash;
     }
-    
+
     char *user = getenv("USER");
     if (!user) user = "unknown";
     commit.author = user;
     commit.message = argv[1];
     commit.timestamp = time(NULL);
-    
+
     hash_t commit_hash;
     commit_write(&commit, &commit_hash);
     ref_update_head(&commit_hash);
@@ -293,14 +328,18 @@ static void cmd_checkout(int argc, char **argv) {
 
 static void cmd_daemon(int argc, char **argv) {
     int port = 9418;
-    
+
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             port = atoi(argv[i + 1]);
+            if (port <= 0 || port > 65535) {
+                fprintf(stderr, "Error: Invalid port number. Port must be between 1 and 65535\n");
+                return;
+            }
             break;
         }
     }
-    
+
     net_daemon_start(port);
 }
 
@@ -690,6 +729,10 @@ static void cmd_merge(int argc, char **argv) {
     free(current_branch);
 }
 
+static void cmd_verify(void) {
+    verify_repository();
+}
+
 static void cmd_help(void) {
     printf("╔══════════════════════════════════════════════════════════════╗\n");
     printf("║                    FIT - Filesystem Inside Terminal          ║\n");
@@ -718,6 +761,7 @@ static void cmd_help(void) {
     printf("  restore <commit>          Restore files from commit\n");
     printf("  daemon --port <port>      Start server daemon\n");
     printf("  gc                        Run garbage collection\n");
+    printf("  verify                    Verify repository integrity\n");
     printf("  help                      Show this help message\n");
     printf("  credits                   Show credits and info\n\n");
     
