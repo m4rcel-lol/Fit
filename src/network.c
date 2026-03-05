@@ -14,9 +14,24 @@
 #include "fit.h"
 
 #define PROTOCOL_VERSION 1
+#define PROTOCOL_MIN_VERSION 1
+#define PROTOCOL_MAX_VERSION 2
 #define CMD_SEND_OBJECTS 1
 #define CMD_REQUEST_OBJECTS 2
+#define CMD_NEGOTIATE 3
 #define SOCKET_TIMEOUT_SEC 30
+
+// Capability flags (bitfield)
+#define CAP_MULTI_THREADED (1 << 0)
+#define CAP_COMPRESSION    (1 << 1)
+#define CAP_STREAMING      (1 << 2)
+
+// Protocol negotiation structure
+typedef struct {
+    uint8_t min_version;
+    uint8_t max_version;
+    uint32_t capabilities;
+} protocol_caps_t;
 
 // Global flag for graceful shutdown
 static volatile sig_atomic_t daemon_running = 1;
@@ -66,6 +81,114 @@ static int set_socket_timeout(int sock, int seconds) {
     return 0;
 }
 
+// Get server capabilities
+static protocol_caps_t get_server_capabilities(void) {
+    protocol_caps_t caps;
+    caps.min_version = PROTOCOL_MIN_VERSION;
+    caps.max_version = PROTOCOL_MAX_VERSION;
+    caps.capabilities = CAP_MULTI_THREADED | CAP_COMPRESSION | CAP_STREAMING;
+    return caps;
+}
+
+// Negotiate protocol version with client
+static int negotiate_protocol(int client_fd, uint8_t *negotiated_version, uint32_t *negotiated_caps) {
+    protocol_caps_t server_caps = get_server_capabilities();
+    protocol_caps_t client_caps;
+
+    // Receive client capabilities
+    if (read(client_fd, &client_caps.min_version, 1) != 1 ||
+        read(client_fd, &client_caps.max_version, 1) != 1 ||
+        read(client_fd, &client_caps.capabilities, sizeof(uint32_t)) != sizeof(uint32_t)) {
+        fprintf(stderr, "Failed to read client capabilities\n");
+        return -1;
+    }
+
+    client_caps.capabilities = ntohl(client_caps.capabilities);
+
+    // Send server capabilities
+    uint32_t caps_network = htonl(server_caps.capabilities);
+    if (write_all(client_fd, &server_caps.min_version, 1) != 1 ||
+        write_all(client_fd, &server_caps.max_version, 1) != 1 ||
+        write_all(client_fd, &caps_network, sizeof(uint32_t)) != sizeof(uint32_t)) {
+        fprintf(stderr, "Failed to send server capabilities\n");
+        return -1;
+    }
+
+    // Negotiate version: use highest common version
+    uint8_t max_common = (client_caps.max_version < server_caps.max_version)
+                          ? client_caps.max_version : server_caps.max_version;
+    uint8_t min_required = (client_caps.min_version > server_caps.min_version)
+                            ? client_caps.min_version : server_caps.min_version;
+
+    if (max_common < min_required) {
+        fprintf(stderr, "No compatible protocol version\n");
+        return -1;
+    }
+
+    *negotiated_version = max_common;
+    *negotiated_caps = server_caps.capabilities & client_caps.capabilities;
+
+    printf("Negotiated protocol version %d with capabilities 0x%x\n",
+           *negotiated_version, *negotiated_caps);
+
+    return 0;
+}
+
+// Client-side protocol negotiation
+static int client_negotiate_protocol(int sock, uint8_t *negotiated_version, uint32_t *negotiated_caps) {
+    protocol_caps_t client_caps;
+    client_caps.min_version = PROTOCOL_MIN_VERSION;
+    client_caps.max_version = PROTOCOL_MAX_VERSION;
+    client_caps.capabilities = CAP_MULTI_THREADED | CAP_COMPRESSION | CAP_STREAMING;
+
+    // Send negotiation command
+    uint8_t version = PROTOCOL_MAX_VERSION;
+    uint8_t cmd = CMD_NEGOTIATE;
+    if (write_all(sock, &version, 1) != 1 || write_all(sock, &cmd, 1) != 1) {
+        fprintf(stderr, "Failed to send negotiation header\n");
+        return -1;
+    }
+
+    // Send client capabilities
+    uint32_t caps_network = htonl(client_caps.capabilities);
+    if (write_all(sock, &client_caps.min_version, 1) != 1 ||
+        write_all(sock, &client_caps.max_version, 1) != 1 ||
+        write_all(sock, &caps_network, sizeof(uint32_t)) != sizeof(uint32_t)) {
+        fprintf(stderr, "Failed to send client capabilities\n");
+        return -1;
+    }
+
+    // Receive server capabilities
+    protocol_caps_t server_caps;
+    if (read(sock, &server_caps.min_version, 1) != 1 ||
+        read(sock, &server_caps.max_version, 1) != 1 ||
+        read(sock, &server_caps.capabilities, sizeof(uint32_t)) != sizeof(uint32_t)) {
+        fprintf(stderr, "Failed to read server capabilities\n");
+        return -1;
+    }
+
+    server_caps.capabilities = ntohl(server_caps.capabilities);
+
+    // Negotiate version
+    uint8_t max_common = (client_caps.max_version < server_caps.max_version)
+                          ? client_caps.max_version : server_caps.max_version;
+    uint8_t min_required = (client_caps.min_version > server_caps.min_version)
+                            ? client_caps.min_version : server_caps.min_version;
+
+    if (max_common < min_required) {
+        fprintf(stderr, "No compatible protocol version\n");
+        return -1;
+    }
+
+    *negotiated_version = max_common;
+    *negotiated_caps = client_caps.capabilities & server_caps.capabilities;
+
+    printf("Negotiated protocol version %d with capabilities 0x%x\n",
+           *negotiated_version, *negotiated_caps);
+
+    return 0;
+}
+
 // Handle client connection (called from thread)
 static void handle_client(int client_fd, struct sockaddr_in client_addr) {
     // Set timeout on client socket
@@ -82,10 +205,30 @@ static void handle_client(int client_fd, struct sockaddr_in client_addr) {
         return;
     }
 
-    if (version != PROTOCOL_VERSION) {
-        fprintf(stderr, "Protocol version mismatch: got %d, expected %d\n", version, PROTOCOL_VERSION);
-        close(client_fd);
-        return;
+    uint8_t negotiated_version = version;
+    uint32_t negotiated_caps = 0;
+
+    // Handle protocol negotiation for version 2+
+    if (cmd == CMD_NEGOTIATE) {
+        if (negotiate_protocol(client_fd, &negotiated_version, &negotiated_caps) < 0) {
+            fprintf(stderr, "Protocol negotiation failed\n");
+            close(client_fd);
+            return;
+        }
+
+        // Read actual command after negotiation
+        if (read(client_fd, &cmd, 1) != 1) {
+            fprintf(stderr, "Failed to read command after negotiation\n");
+            close(client_fd);
+            return;
+        }
+    } else {
+        // Legacy protocol (version 1), no negotiation
+        if (version != PROTOCOL_VERSION) {
+            fprintf(stderr, "Protocol version mismatch: got %d, expected %d\n", version, PROTOCOL_VERSION);
+            close(client_fd);
+            return;
+        }
     }
 
     if (cmd == CMD_SEND_OBJECTS) {
@@ -362,12 +505,28 @@ int net_send_objects(const char *host, int port, const hash_t *hashes, size_t co
 
     printf("Connected to %s:%d\n", host, port);
 
-    uint8_t version = PROTOCOL_VERSION;
-    uint8_t cmd = CMD_SEND_OBJECTS;
-    if (write_all(sock, &version, 1) != 1 || write_all(sock, &cmd, 1) != 1) {
-        perror("Failed to send protocol header");
-        close(sock);
-        return -1;
+    // Try protocol negotiation (version 2+), fall back to legacy
+    uint8_t negotiated_version = PROTOCOL_VERSION;
+    uint32_t negotiated_caps = 0;
+
+    if (client_negotiate_protocol(sock, &negotiated_version, &negotiated_caps) == 0) {
+        // Negotiation succeeded, send command
+        uint8_t cmd = CMD_SEND_OBJECTS;
+        if (write_all(sock, &cmd, 1) != 1) {
+            perror("Failed to send command");
+            close(sock);
+            return -1;
+        }
+    } else {
+        // Negotiation failed, fall back to legacy protocol
+        printf("Falling back to legacy protocol v1\n");
+        uint8_t version = PROTOCOL_VERSION;
+        uint8_t cmd = CMD_SEND_OBJECTS;
+        if (write_all(sock, &version, 1) != 1 || write_all(sock, &cmd, 1) != 1) {
+            perror("Failed to send protocol header");
+            close(sock);
+            return -1;
+        }
     }
 
     char pack_file[256];
@@ -444,12 +603,28 @@ int net_recv_objects(const char *host, int port, const char *branch) {
 
     printf("Connected to %s:%d\n", host, port);
 
-    uint8_t version = PROTOCOL_VERSION;
-    uint8_t cmd = CMD_REQUEST_OBJECTS;
-    if (write_all(sock, &version, 1) != 1 || write_all(sock, &cmd, 1) != 1) {
-        perror("Failed to send protocol header");
-        close(sock);
-        return -1;
+    // Try protocol negotiation (version 2+), fall back to legacy
+    uint8_t negotiated_version = PROTOCOL_VERSION;
+    uint32_t negotiated_caps = 0;
+
+    if (client_negotiate_protocol(sock, &negotiated_version, &negotiated_caps) == 0) {
+        // Negotiation succeeded, send command
+        uint8_t cmd = CMD_REQUEST_OBJECTS;
+        if (write_all(sock, &cmd, 1) != 1) {
+            perror("Failed to send command");
+            close(sock);
+            return -1;
+        }
+    } else {
+        // Negotiation failed, fall back to legacy protocol
+        printf("Falling back to legacy protocol v1\n");
+        uint8_t version = PROTOCOL_VERSION;
+        uint8_t cmd = CMD_REQUEST_OBJECTS;
+        if (write_all(sock, &version, 1) != 1 || write_all(sock, &cmd, 1) != 1) {
+            perror("Failed to send protocol header");
+            close(sock);
+            return -1;
+        }
     }
 
     size_t branch_len = strlen(branch);

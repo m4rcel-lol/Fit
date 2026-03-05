@@ -17,7 +17,7 @@ Fit reimplements Git's core concepts:
 ### Key Differences from Git
 
 1. **SHA-256 by default** (Git uses SHA-1, transitioning to SHA-256)
-2. **Simplified protocol** - custom lightweight TCP protocol instead of Git's complex protocol
+2. **Simplified protocol** - custom lightweight TCP protocol with smart negotiation
 3. **Backup-first design** - includes `snapshot` command for quick full-directory backups
 4. **Minimal dependencies** - only zlib and OpenSSL
 5. **No delta compression yet** - stores full objects (stretch goal)
@@ -55,15 +55,32 @@ Compressed with zlib and stored at `.fit/objects/<first-2-hex>/<remaining-hex>`.
 
 ## Network Protocol
 
-Simple TCP protocol on port 9418:
+Extensible TCP protocol on port 9418 with version negotiation:
 
+### Protocol Version 1 (Legacy)
 ```
 [VERSION:1][COMMAND:1][PACKFILE_DATA]
+```
+
+### Protocol Version 2+ (With Negotiation)
+```
+[VERSION:2][CMD_NEGOTIATE:3]
+[CLIENT_MIN_VER:1][CLIENT_MAX_VER:1][CLIENT_CAPS:4]
+[SERVER_MIN_VER:1][SERVER_MAX_VER:1][SERVER_CAPS:4]
+[COMMAND:1][PACKFILE_DATA]
 ```
 
 Commands:
 - `CMD_SEND_OBJECTS (1)`: Send packfile to server
 - `CMD_REQUEST_OBJECTS (2)`: Request objects from server
+- `CMD_NEGOTIATE (3)`: Initiate protocol negotiation
+
+Capabilities:
+- `CAP_MULTI_THREADED`: Server supports concurrent connections
+- `CAP_COMPRESSION`: Enhanced compression support
+- `CAP_STREAMING`: Optimized streaming transfer
+
+The protocol automatically negotiates the highest common version and capability set between client and server, with automatic fallback to legacy protocol v1 for backward compatibility.
 
 ## Installation
 
@@ -423,7 +440,7 @@ fit push localhost main
 - [ ] Signed commits (GPG)
 - [ ] File chunking for large files
 - [x] Multi-threaded daemon - **✓ Implemented**
-- [ ] Smart protocol negotiation
+- [x] Smart protocol negotiation - **✓ Implemented**
 - [ ] Shallow clones
 - [ ] Submodule support
 - [ ] Three-way merge algorithm
