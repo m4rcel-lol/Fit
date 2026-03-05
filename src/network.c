@@ -17,6 +17,16 @@
 #define CMD_REQUEST_OBJECTS 2
 #define SOCKET_TIMEOUT_SEC 30
 
+// Global flag for graceful shutdown
+static volatile sig_atomic_t daemon_running = 1;
+
+// Signal handler for graceful shutdown
+static void handle_shutdown(int sig) {
+    (void)sig;  // Unused parameter
+    daemon_running = 0;
+    printf("\nShutting down daemon gracefully...\n");
+}
+
 // Helper function for reliable write
 static ssize_t write_all(int fd, const void *buf, size_t count) {
     size_t written = 0;
@@ -50,6 +60,19 @@ static int set_socket_timeout(int sock, int seconds) {
 }
 
 int net_daemon_start(int port) {
+    // Setup signal handlers for graceful shutdown
+    struct sigaction sa;
+    sa.sa_handler = handle_shutdown;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    if (sigaction(SIGINT, &sa, NULL) < 0) {
+        perror("Warning: Failed to set SIGINT handler");
+    }
+    if (sigaction(SIGTERM, &sa, NULL) < 0) {
+        perror("Warning: Failed to set SIGTERM handler");
+    }
+
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         perror("Failed to create socket");
@@ -77,13 +100,15 @@ int net_daemon_start(int port) {
     }
 
     printf("Fit daemon listening on port %d\n", port);
+    printf("Press Ctrl+C to stop\n");
 
-    while (1) {
+    while (daemon_running) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
         int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
 
         if (client_fd < 0) {
+            if (!daemon_running) break;  // Shutting down
             perror("Failed to accept connection");
             continue;
         }
@@ -253,7 +278,8 @@ int net_daemon_start(int port) {
 next_client:
         close(client_fd);
     }
-    
+
+    printf("Daemon stopped\n");
     close(server_fd);
     return 0;
 }

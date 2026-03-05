@@ -94,7 +94,16 @@ static void cmd_init(void) {
 }
 
 static void cmd_add(int argc, char **argv) {
+    if (argc == 0) {
+        fprintf(stderr, "Usage: fit add <file>...\n");
+        return;
+    }
+
     for (int i = 0; i < argc; i++) {
+        if (strlen(argv[i]) > 1024) {
+            fprintf(stderr, "Error: File path too long: %s\n", argv[i]);
+            continue;
+        }
         if (index_add(argv[i]) == 0) {
             printf("Added %s\n", argv[i]);
         } else {
@@ -130,23 +139,33 @@ static void cmd_commit(int argc, char **argv) {
         fprintf(stderr, "Usage: fit commit -m <message>\n");
         return;
     }
-    
+
+    if (strlen(argv[1]) == 0) {
+        fprintf(stderr, "Error: Commit message cannot be empty\n");
+        return;
+    }
+
+    if (strlen(argv[1]) > 8192) {
+        fprintf(stderr, "Error: Commit message too long (max 8192 characters)\n");
+        return;
+    }
+
     hash_t tree_hash = build_tree_from_index();
-    
+
     commit_t commit = {0};
     commit.tree = tree_hash;
-    
+
     hash_t parent_hash;
     if (ref_resolve_head(&parent_hash) == 0) {
         commit.parent = parent_hash;
     }
-    
+
     char *user = getenv("USER");
     if (!user) user = "unknown";
     commit.author = user;
     commit.message = argv[1];
     commit.timestamp = time(NULL);
-    
+
     hash_t commit_hash;
     commit_write(&commit, &commit_hash);
     ref_update_head(&commit_hash);
@@ -307,14 +326,18 @@ static void cmd_checkout(int argc, char **argv) {
 
 static void cmd_daemon(int argc, char **argv) {
     int port = 9418;
-    
+
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             port = atoi(argv[i + 1]);
+            if (port <= 0 || port > 65535) {
+                fprintf(stderr, "Error: Invalid port number. Port must be between 1 and 65535\n");
+                return;
+            }
             break;
         }
     }
-    
+
     net_daemon_start(port);
 }
 
