@@ -4,14 +4,50 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <signal.h>
+#include <errno.h>
 #include "fit.h"
 
 #define PROTOCOL_VERSION 1
 #define CMD_SEND_OBJECTS 1
 #define CMD_REQUEST_OBJECTS 2
+#define SOCKET_TIMEOUT_SEC 30
+
+// Helper function for reliable write
+static ssize_t write_all(int fd, const void *buf, size_t count) {
+    size_t written = 0;
+    const char *ptr = (const char *)buf;
+
+    while (written < count) {
+        ssize_t n = write(fd, ptr + written, count - written);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return written;
+        written += n;
+    }
+    return written;
+}
+
+// Helper function for setting socket timeouts
+static int set_socket_timeout(int sock, int seconds) {
+    struct timeval tv;
+    tv.tv_sec = seconds;
+    tv.tv_usec = 0;
+
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        return -1;
+    }
+    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0) {
+        return -1;
+    }
+    return 0;
+}
 
 int net_daemon_start(int port) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -52,6 +88,11 @@ int net_daemon_start(int port) {
             continue;
         }
 
+        // Set timeout on client socket
+        if (set_socket_timeout(client_fd, SOCKET_TIMEOUT_SEC) < 0) {
+            fprintf(stderr, "Warning: Failed to set socket timeout\n");
+        }
+
         printf("Client connected from %s\n", inet_ntoa(client_addr.sin_addr));
 
         uint8_t version, cmd;
@@ -66,7 +107,7 @@ int net_daemon_start(int port) {
             close(client_fd);
             continue;
         }
-        
+
         if (cmd == CMD_SEND_OBJECTS) {
             printf("Receiving objects...\n");
             char pack_file[256];
@@ -83,7 +124,14 @@ int net_daemon_start(int port) {
             ssize_t n;
             size_t total = 0;
             while ((n = read(client_fd, buf, sizeof(buf))) > 0) {
-                fwrite(buf, 1, n, f);
+                size_t written = fwrite(buf, 1, n, f);
+                if (written != (size_t)n) {
+                    fprintf(stderr, "Failed to write to pack file\n");
+                    fclose(f);
+                    close(client_fd);
+                    unlink(pack_file);
+                    goto next_client;
+                }
                 total += n;
             }
             fclose(f);
@@ -98,18 +146,21 @@ int net_daemon_start(int port) {
                     char sig[4];
                     if (fread(sig, 1, 4, pf) == 4) {
                         uint32_t version, num_objects;
-                        fread(&version, 4, 1, pf);
-                        fread(&num_objects, 4, 1, pf);
+                        if (fread(&version, 4, 1, pf) == 1 && fread(&num_objects, 4, 1, pf) == 1) {
+                            num_objects = ntohl(num_objects);
 
-                        if (num_objects > 0) {
-                            uint32_t type, size;
-                            fread(&type, 4, 1, pf);
-                            fread(&size, 4, 1, pf);
-                            fread(latest_commit.hash, HASH_SIZE, 1, pf);
+                            if (num_objects > 0) {
+                                uint32_t type, size;
+                                if (fread(&type, 4, 1, pf) == 1 &&
+                                    fread(&size, 4, 1, pf) == 1 &&
+                                    fread(latest_commit.hash, HASH_SIZE, 1, pf) == 1) {
 
-                            if (ntohl(type) == OBJ_COMMIT) {
-                                ref_write("heads/main", &latest_commit);
-                                printf("Updated main branch\n");
+                                    if (ntohl(type) == OBJ_COMMIT) {
+                                        if (ref_write("heads/main", &latest_commit) == 0) {
+                                            printf("Updated main branch\n");
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -129,29 +180,33 @@ int net_daemon_start(int port) {
             }
 
             char branch[256] = {0};
-            if (branch_len < sizeof(branch)) {
-                if (read(client_fd, branch, branch_len) != (ssize_t)branch_len) {
-                    fprintf(stderr, "Failed to read branch name\n");
-                    close(client_fd);
-                    continue;
-                }
+            if (branch_len >= sizeof(branch)) {
+                fprintf(stderr, "Branch name too long: %zu\n", branch_len);
+                close(client_fd);
+                continue;
             }
-            
+
+            if (branch_len > 0 && read(client_fd, branch, branch_len) != (ssize_t)branch_len) {
+                fprintf(stderr, "Failed to read branch name\n");
+                close(client_fd);
+                continue;
+            }
+
             char ref_name[256];
             snprintf(ref_name, sizeof(ref_name), "heads/%s", branch);
-            
+
             hash_t hash;
             if (ref_read(ref_name, &hash) == 0) {
                 hash_t hashes[256];
                 int count = 0;
-                
+
                 hash_t current = hash;
                 while (count < 256) {
                     hashes[count++] = current;
-                    
+
                     commit_t commit;
                     if (commit_read(&current, &commit) < 0) break;
-                    
+
                     int has_parent = 0;
                     for (int i = 0; i < HASH_SIZE; i++) {
                         if (commit.parent.hash[i]) {
@@ -159,33 +214,43 @@ int net_daemon_start(int port) {
                             break;
                         }
                     }
-                    
+
                     if (!has_parent) {
                         commit_free(&commit);
                         break;
                     }
-                    
+
                     current = commit.parent;
                     commit_free(&commit);
                 }
-                
+
                 char pack_file[256];
                 snprintf(pack_file, sizeof(pack_file), "/tmp/fit_send_%d.pack", getpid());
-                pack_objects(hashes, count, pack_file);
-                
-                FILE *f = fopen(pack_file, "rb");
-                if (f) {
-                    char buf[8192];
-                    size_t n;
-                    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-                        write(client_fd, buf, n);
+                if (pack_objects(hashes, count, pack_file) == 0) {
+                    FILE *f = fopen(pack_file, "rb");
+                    if (f) {
+                        char buf[8192];
+                        size_t n;
+                        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+                            if (write_all(client_fd, buf, n) != (ssize_t)n) {
+                                fprintf(stderr, "Failed to send data to client\n");
+                                break;
+                            }
+                        }
+                        fclose(f);
+                        unlink(pack_file);
+                    } else {
+                        fprintf(stderr, "Failed to open pack file for reading\n");
                     }
-                    fclose(f);
-                    unlink(pack_file);
+                } else {
+                    fprintf(stderr, "Failed to create pack file\n");
                 }
+            } else {
+                fprintf(stderr, "Branch '%s' not found\n", branch);
             }
         }
-        
+
+next_client:
         close(client_fd);
     }
     
@@ -213,6 +278,11 @@ int net_send_objects(const char *host, int port, const hash_t *hashes, size_t co
         return -1;
     }
 
+    // Set socket timeout
+    if (set_socket_timeout(sock, SOCKET_TIMEOUT_SEC) < 0) {
+        fprintf(stderr, "Warning: Failed to set socket timeout\n");
+    }
+
     if (connect(sock, result->ai_addr, result->ai_addrlen) < 0) {
         perror("Failed to connect to server");
         close(sock);
@@ -226,7 +296,7 @@ int net_send_objects(const char *host, int port, const hash_t *hashes, size_t co
 
     uint8_t version = PROTOCOL_VERSION;
     uint8_t cmd = CMD_SEND_OBJECTS;
-    if (write(sock, &version, 1) != 1 || write(sock, &cmd, 1) != 1) {
+    if (write_all(sock, &version, 1) != 1 || write_all(sock, &cmd, 1) != 1) {
         perror("Failed to send protocol header");
         close(sock);
         return -1;
@@ -252,7 +322,7 @@ int net_send_objects(const char *host, int port, const hash_t *hashes, size_t co
     char buf[8192];
     size_t n, total = 0;
     while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-        if (write(sock, buf, n) != (ssize_t)n) {
+        if (write_all(sock, buf, n) != (ssize_t)n) {
             perror("Failed to send data");
             fclose(f);
             close(sock);
@@ -290,6 +360,11 @@ int net_recv_objects(const char *host, int port, const char *branch) {
         return -1;
     }
 
+    // Set socket timeout
+    if (set_socket_timeout(sock, SOCKET_TIMEOUT_SEC) < 0) {
+        fprintf(stderr, "Warning: Failed to set socket timeout\n");
+    }
+
     if (connect(sock, result->ai_addr, result->ai_addrlen) < 0) {
         perror("Failed to connect to server");
         close(sock);
@@ -303,15 +378,15 @@ int net_recv_objects(const char *host, int port, const char *branch) {
 
     uint8_t version = PROTOCOL_VERSION;
     uint8_t cmd = CMD_REQUEST_OBJECTS;
-    if (write(sock, &version, 1) != 1 || write(sock, &cmd, 1) != 1) {
+    if (write_all(sock, &version, 1) != 1 || write_all(sock, &cmd, 1) != 1) {
         perror("Failed to send protocol header");
         close(sock);
         return -1;
     }
 
     size_t branch_len = strlen(branch);
-    if (write(sock, &branch_len, sizeof(branch_len)) != sizeof(branch_len) ||
-        write(sock, branch, branch_len) != (ssize_t)branch_len) {
+    if (write_all(sock, &branch_len, sizeof(branch_len)) != sizeof(branch_len) ||
+        write_all(sock, branch, branch_len) != (ssize_t)branch_len) {
         perror("Failed to send branch name");
         close(sock);
         return -1;
@@ -331,7 +406,14 @@ int net_recv_objects(const char *host, int port, const char *branch) {
     ssize_t n;
     size_t total = 0;
     while ((n = read(sock, buf, sizeof(buf))) > 0) {
-        fwrite(buf, 1, n, f);
+        size_t written = fwrite(buf, 1, n, f);
+        if (written != (size_t)n) {
+            fprintf(stderr, "Failed to write to pack file\n");
+            fclose(f);
+            close(sock);
+            unlink(pack_file);
+            return -1;
+        }
         total += n;
     }
     fclose(f);
