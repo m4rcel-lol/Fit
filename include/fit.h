@@ -117,4 +117,22 @@ int diff_blobs(const hash_t *hash1, const hash_t *hash2);
 int diff_trees(const hash_t *tree1, const hash_t *tree2, const char *prefix);
 int diff_commits(const hash_t *commit1, const hash_t *commit2);
 
+/* tag.c */
+int tag_create(const char *name, const hash_t *commit_hash, const char *message);
+int tag_delete(const char *name);
+int tag_list(void);
+int tag_resolve(const char *name, hash_t *out);
+
+/* remote.c */
+int remote_add(const char *name, const char *url);
+int remote_remove(const char *name);
+int remote_list(void);
+int remote_get_url(const char *name, char *url, size_t url_size);
+
+/* stash.c */
+int stash_save(const char *message);
+int stash_list(void);
+int stash_pop(const char *stash_name);
+int stash_drop(const char *stash_name);
+
 #endif
