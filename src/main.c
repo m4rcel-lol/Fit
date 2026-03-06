@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +28,8 @@ static void cmd_remote(int argc, char **argv);
 static void cmd_stash(int argc, char **argv);
 static void cmd_merge(int argc, char **argv);
 static void cmd_verify(void);
+static void cmd_init_signing(void);
+static void cmd_verify_commit(int argc, char **argv);
 static void cmd_help(void);
 static void cmd_credits(void);
 
@@ -37,6 +40,7 @@ int main(int argc, char **argv) {
     }
     
     if (strcmp(argv[1], "init") == 0) cmd_init();
+    else if (strcmp(argv[1], "init-signing") == 0) cmd_init_signing();
     else if (strcmp(argv[1], "add") == 0) cmd_add(argc - 2, argv + 2);
     else if (strcmp(argv[1], "commit") == 0) cmd_commit(argc - 2, argv + 2);
     else if (strcmp(argv[1], "log") == 0) cmd_log();
@@ -56,6 +60,7 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[1], "stash") == 0) cmd_stash(argc - 2, argv + 2);
     else if (strcmp(argv[1], "merge") == 0) cmd_merge(argc - 2, argv + 2);
     else if (strcmp(argv[1], "verify") == 0) cmd_verify();
+    else if (strcmp(argv[1], "verify-commit") == 0) cmd_verify_commit(argc - 2, argv + 2);
     else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) cmd_help();
     else if (strcmp(argv[1], "credits") == 0) cmd_credits();
     else {
@@ -137,17 +142,31 @@ static hash_t build_tree_from_index(void) {
 }
 
 static void cmd_commit(int argc, char **argv) {
-    if (argc < 2 || strcmp(argv[0], "-m") != 0) {
-        fprintf(stderr, "Usage: fit commit -m <message>\n");
+    int sign_commit = 0;
+    int message_index = -1;
+
+    /* Parse arguments */
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "-S") == 0 || strcmp(argv[i], "--sign") == 0) {
+            sign_commit = 1;
+        } else if (strcmp(argv[i], "-m") == 0 && i + 1 < argc) {
+            message_index = i + 1;
+        }
+    }
+
+    if (message_index == -1) {
+        fprintf(stderr, "Usage: fit commit -m <message> [--sign|-S]\n");
         return;
     }
 
-    if (strlen(argv[1]) == 0) {
+    char *message = argv[message_index];
+
+    if (strlen(message) == 0) {
         fprintf(stderr, "Error: Commit message cannot be empty\n");
         return;
     }
 
-    if (strlen(argv[1]) > 8192) {
+    if (strlen(message) > 8192) {
         fprintf(stderr, "Error: Commit message too long (max 8192 characters)\n");
         return;
     }
@@ -165,16 +184,64 @@ static void cmd_commit(int argc, char **argv) {
     char *user = getenv("USER");
     if (!user) user = "unknown";
     commit.author = user;
-    commit.message = argv[1];
+    commit.message = message;
     commit.timestamp = time(NULL);
+
+    /* Sign commit if requested */
+    if (sign_commit) {
+        if (!signature_has_key()) {
+            fprintf(stderr, "Error: No signing key found. Run 'fit init-signing' first.\n");
+            return;
+        }
+
+        /* Build commit data to sign (without signature field) */
+        char tree_hex[HASH_HEX_SIZE + 1];
+        char parent_hex[HASH_HEX_SIZE + 1];
+        hash_to_hex(&commit.tree, tree_hex);
+        hash_to_hex(&commit.parent, parent_hex);
+
+        char *data_to_sign;
+        size_t sign_len;
+        int has_parent = 0;
+        for (int i = 0; i < HASH_SIZE; i++) {
+            if (commit.parent.hash[i]) {
+                has_parent = 1;
+                break;
+            }
+        }
+
+        if (has_parent) {
+            sign_len = asprintf(&data_to_sign, "tree %s\nparent %s\nauthor %s %ld\n\n%s",
+                               tree_hex, parent_hex, commit.author, commit.timestamp, commit.message);
+        } else {
+            sign_len = asprintf(&data_to_sign, "tree %s\nauthor %s %ld\n\n%s",
+                               tree_hex, commit.author, commit.timestamp, commit.message);
+        }
+
+        char *signature_hex = NULL;
+        size_t sig_len = 0;
+
+        if (signature_sign(data_to_sign, sign_len, &signature_hex, &sig_len) == 0) {
+            commit.signature = signature_hex;
+            printf("Commit will be signed\n");
+        } else {
+            fprintf(stderr, "Warning: Failed to sign commit, proceeding unsigned\n");
+        }
+
+        free(data_to_sign);
+    }
 
     hash_t commit_hash;
     commit_write(&commit, &commit_hash);
     ref_update_head(&commit_hash);
-    
+
+    if (commit.signature) {
+        free(commit.signature);
+    }
+
     char hex[HASH_HEX_SIZE + 1];
     hash_to_hex(&commit_hash, hex);
-    printf("Created commit %.8s\n", hex);
+    printf("Created commit %.8s%s\n", hex, sign_commit ? " (signed)" : "");
 }
 
 static void cmd_log(void) {
@@ -815,6 +882,86 @@ static void cmd_verify(void) {
     verify_repository();
 }
 
+static void cmd_init_signing(void) {
+    if (signature_has_key()) {
+        printf("Signing key already exists at .fit/private_key.pem\n");
+        printf("Delete it first if you want to generate a new key.\n");
+        return;
+    }
+
+    printf("Generating RSA-2048 key pair for commit signing...\n");
+    if (signature_generate_keypair() == 0) {
+        printf("\nYou can now sign commits with: fit commit -m \"message\" --sign\n");
+    } else {
+        fprintf(stderr, "Failed to generate signing key\n");
+    }
+}
+
+static void cmd_verify_commit(int argc, char **argv) {
+    if (argc < 1) {
+        fprintf(stderr, "Usage: fit verify-commit <commit-hash>\n");
+        return;
+    }
+
+    hash_t commit_hash;
+    if (hex_to_hash(argv[0], &commit_hash) < 0) {
+        fprintf(stderr, "Invalid commit hash\n");
+        return;
+    }
+
+    commit_t commit;
+    if (commit_read(&commit_hash, &commit) < 0) {
+        fprintf(stderr, "Failed to read commit\n");
+        return;
+    }
+
+    if (!commit.signature) {
+        printf("Commit is not signed\n");
+        commit_free(&commit);
+        return;
+    }
+
+    /* Rebuild commit data without signature for verification */
+    char tree_hex[HASH_HEX_SIZE + 1];
+    char parent_hex[HASH_HEX_SIZE + 1];
+    hash_to_hex(&commit.tree, tree_hex);
+    hash_to_hex(&commit.parent, parent_hex);
+
+    char *data_to_verify;
+    size_t data_len;
+    int has_parent = 0;
+    for (int i = 0; i < HASH_SIZE; i++) {
+        if (commit.parent.hash[i]) {
+            has_parent = 1;
+            break;
+        }
+    }
+
+    if (has_parent) {
+        data_len = asprintf(&data_to_verify, "tree %s\nparent %s\nauthor %s %ld\n\n%s",
+                           tree_hex, parent_hex, commit.author, commit.timestamp, commit.message);
+    } else {
+        data_len = asprintf(&data_to_verify, "tree %s\nauthor %s %ld\n\n%s",
+                           tree_hex, commit.author, commit.timestamp, commit.message);
+    }
+
+    int result = signature_verify(data_to_verify, data_len, commit.signature, strlen(commit.signature));
+
+    free(data_to_verify);
+
+    if (result == 0) {
+        printf("✓ Good signature\n");
+        printf("  Commit: %.8s\n", argv[0]);
+        printf("  Author: %s\n", commit.author);
+        commit_free(&commit);
+    } else {
+        printf("✗ BAD signature\n");
+        printf("  Commit: %.8s\n", argv[0]);
+        printf("  WARNING: Signature verification failed!\n");
+        commit_free(&commit);
+    }
+}
+
 static void cmd_help(void) {
     printf("╔══════════════════════════════════════════════════════════════╗\n");
     printf("║                    FIT - Filesystem Inside Terminal          ║\n");
@@ -825,8 +972,9 @@ static void cmd_help(void) {
     
     printf("COMMANDS:\n");
     printf("  init                      Initialize a new repository\n");
+    printf("  init-signing              Generate RSA key pair for signing commits\n");
     printf("  add <files>               Stage files for commit\n");
-    printf("  commit -m <message>       Create a commit\n");
+    printf("  commit -m <message> [-S]  Create a commit (optionally signed)\n");
     printf("  log                       Show commit history\n");
     printf("  status                    Show repository status\n");
     printf("  diff <commit1> <commit2>  Show differences between commits\n");
@@ -844,6 +992,7 @@ static void cmd_help(void) {
     printf("  daemon --port <port>      Start server daemon\n");
     printf("  gc                        Run garbage collection\n");
     printf("  verify                    Verify repository integrity\n");
+    printf("  verify-commit <hash>      Verify commit signature\n");
     printf("  help                      Show this help message\n");
     printf("  credits                   Show credits and info\n\n");
     

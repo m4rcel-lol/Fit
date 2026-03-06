@@ -44,6 +44,7 @@ typedef struct {
     hash_t parent;
     char *author;
     char *message;
+    char *signature;  /* Hex-encoded signature (NULL if unsigned) */
     time_t timestamp;
 } commit_t;
 
@@ -142,5 +143,11 @@ int verify_repository(void);
 int merge_three_way(const hash_t *current_commit, const hash_t *target_commit,
                     const char *current_branch, const char *target_branch);
 int hash_is_null(const hash_t *hash);
+
+/* signature.c */
+int signature_generate_keypair(void);
+int signature_sign(const char *data, size_t data_len, char **signature_out, size_t *sig_len_out);
+int signature_verify(const char *data, size_t data_len, const char *hex_signature, size_t sig_hex_len);
+int signature_has_key(void);
 
 #endif
