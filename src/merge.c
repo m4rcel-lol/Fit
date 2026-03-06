@@ -279,7 +279,19 @@ static int merge_trees_recursive(const hash_t *base_tree, const hash_t *ours_tre
             }
         }
         if (!found && name_count < 1024) {
-            all_names[name_count++] = strdup(e->name);
+            char *name_copy = strdup(e->name);
+            if (!name_copy) {
+                fprintf(stderr, "Failed to allocate memory for file name\n");
+                for (int j = 0; j < name_count; j++) {
+                    free(all_names[j]);
+                }
+                free(all_names);
+                tree_free(base_entries);
+                tree_free(ours_entries);
+                tree_free(theirs_entries);
+                return -1;
+            }
+            all_names[name_count++] = name_copy;
         }
     }
 
@@ -293,7 +305,19 @@ static int merge_trees_recursive(const hash_t *base_tree, const hash_t *ours_tre
             }
         }
         if (!found && name_count < 1024) {
-            all_names[name_count++] = strdup(e->name);
+            char *name_copy = strdup(e->name);
+            if (!name_copy) {
+                fprintf(stderr, "Failed to allocate memory for file name\n");
+                for (int j = 0; j < name_count; j++) {
+                    free(all_names[j]);
+                }
+                free(all_names);
+                tree_free(base_entries);
+                tree_free(ours_entries);
+                tree_free(theirs_entries);
+                return -1;
+            }
+            all_names[name_count++] = name_copy;
         }
     }
 
@@ -307,7 +331,19 @@ static int merge_trees_recursive(const hash_t *base_tree, const hash_t *ours_tre
             }
         }
         if (!found && name_count < 1024) {
-            all_names[name_count++] = strdup(e->name);
+            char *name_copy = strdup(e->name);
+            if (!name_copy) {
+                fprintf(stderr, "Failed to allocate memory for file name\n");
+                for (int j = 0; j < name_count; j++) {
+                    free(all_names[j]);
+                }
+                free(all_names);
+                tree_free(base_entries);
+                tree_free(ours_entries);
+                tree_free(theirs_entries);
+                return -1;
+            }
+            all_names[name_count++] = name_copy;
         }
     }
 
