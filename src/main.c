@@ -250,19 +250,31 @@ static void cmd_log(void) {
         printf("No commits yet\n");
         return;
     }
-    
+
     while (1) {
         commit_t commit;
         if (commit_read(&hash, &commit) < 0) break;
-        
+
         char hex[HASH_HEX_SIZE + 1];
         hash_to_hex(&hash, hex);
-        
-        printf("commit %s\n", hex);
+
+        printf("commit %s", hex);
+        if (commit.signature) {
+            printf(" (signed)");
+        }
+        printf("\n");
+
         printf("Author: %s\n", commit.author);
         printf("Date: %s", ctime(&commit.timestamp));
         printf("\n    %s\n\n", commit.message);
-        
+
+        /* Check if we hit a shallow boundary */
+        if (shallow_is_boundary(&hash)) {
+            printf("(shallow boundary - history truncated)\n");
+            commit_free(&commit);
+            break;
+        }
+
         int has_parent = 0;
         for (int i = 0; i < HASH_SIZE; i++) {
             if (commit.parent.hash[i]) {
@@ -270,12 +282,12 @@ static void cmd_log(void) {
                 break;
             }
         }
-        
+
         if (!has_parent) {
             commit_free(&commit);
             break;
         }
-        
+
         hash = commit.parent;
         commit_free(&commit);
     }
@@ -522,12 +534,25 @@ static void cmd_pull(int argc, char **argv) {
 
 static void cmd_clone(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: fit clone <host> <branch> [directory]\n");
+        fprintf(stderr, "Usage: fit clone <host> <branch> [directory] [--depth N]\n");
         return;
     }
-    
-    const char *dir = argc >= 3 ? argv[2] : ".";
-    
+
+    const char *host = argv[0];
+    const char *branch = argv[1];
+    const char *dir = ".";
+    int depth = 0; /* 0 means full clone */
+
+    /* Parse optional arguments */
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--depth") == 0 && i + 1 < argc) {
+            depth = atoi(argv[i + 1]);
+            i++; /* Skip next arg */
+        } else if (argv[i][0] != '-') {
+            dir = argv[i];
+        }
+    }
+
     if (strcmp(dir, ".") != 0) {
         mkdirp(dir);
         if (chdir(dir) < 0) {
@@ -535,14 +560,52 @@ static void cmd_clone(int argc, char **argv) {
             return;
         }
     }
-    
+
     cmd_init();
-    
-    char *pull_argv[] = { argv[0], argv[1] };
+
+    /* Perform pull (which will respect depth if set) */
+    char *pull_argv[] = { (char*)host, (char*)branch };
     cmd_pull(2, pull_argv);
-    
+
     hash_t hash;
     if (ref_resolve_head(&hash) == 0) {
+        /* If shallow clone, mark the repository */
+        if (depth > 0) {
+            hash_t *commits = NULL;
+            size_t count = 0;
+
+            /* Collect commits up to depth */
+            if (shallow_collect_commits(&hash, depth, &commits, &count) == 0) {
+                /* Mark the last commit as shallow boundary */
+                if (count > 0) {
+                    hash_t shallow_boundary = commits[count - 1];
+
+                    /* Check if this commit has a parent */
+                    commit_t commit;
+                    if (commit_read(&shallow_boundary, &commit) == 0) {
+                        int has_parent = 0;
+                        for (int i = 0; i < HASH_SIZE; i++) {
+                            if (commit.parent.hash[i]) {
+                                has_parent = 1;
+                                break;
+                            }
+                        }
+
+                        if (has_parent) {
+                            /* Mark the parent as shallow */
+                            hash_t shallow_commits[1] = { commit.parent };
+                            shallow_mark(shallow_commits, 1);
+                            printf("Created shallow clone with depth %d\n", depth);
+                        }
+
+                        commit_free(&commit);
+                    }
+                }
+
+                free(commits);
+            }
+        }
+
         checkout_commit(&hash);
         printf("Cloned into %s\n", dir);
     }
@@ -987,7 +1050,7 @@ static void cmd_help(void) {
     printf("  snapshot -m <message>     Quick backup of all files\n");
     printf("  push <host> <branch>      Push to remote server\n");
     printf("  pull <host> <branch>      Pull from remote server\n");
-    printf("  clone <host> <branch> [dir]  Clone remote repository\n");
+    printf("  clone <host> <branch> [dir] [--depth N]  Clone repository (optionally shallow)\n");
     printf("  restore <commit>          Restore files from commit\n");
     printf("  daemon --port <port>      Start server daemon\n");
     printf("  gc                        Run garbage collection\n");

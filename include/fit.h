@@ -150,4 +150,12 @@ int signature_sign(const char *data, size_t data_len, char **signature_out, size
 int signature_verify(const char *data, size_t data_len, const char *hex_signature, size_t sig_hex_len);
 int signature_has_key(void);
 
+/* shallow.c */
+int shallow_mark(const hash_t *shallow_commits, size_t count);
+int shallow_is_repository_shallow(void);
+int shallow_read_commits(hash_t **commits_out, size_t *count_out);
+int shallow_is_boundary(const hash_t *commit_hash);
+int shallow_deepen(int depth);
+int shallow_collect_commits(const hash_t *start, int depth, hash_t **commits_out, size_t *count_out);
+
 #endif
