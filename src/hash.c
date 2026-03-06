@@ -9,7 +9,7 @@ void hash_data(const void *data, size_t len, hash_t *out) {
 
 void hash_to_hex(const hash_t *hash, char *hex) {
     for (int i = 0; i < HASH_SIZE; i++) {
-        sprintf(hex + i * 2, "%02x", hash->hash[i]);
+        snprintf(hex + i * 2, 3, "%02x", hash->hash[i]);
     }
     hex[HASH_HEX_SIZE] = '\0';
 }
@@ -24,4 +24,13 @@ int hex_to_hash(const char *hex, hash_t *hash) {
 
 int hash_equal(const hash_t *a, const hash_t *b) {
     return memcmp(a->hash, b->hash, HASH_SIZE) == 0;
+}
+
+int hash_is_null(const hash_t *hash) {
+    for (int i = 0; i < HASH_SIZE; i++) {
+        if (hash->hash[i] != 0) {
+            return 0;
+        }
+    }
+    return 1;
 }

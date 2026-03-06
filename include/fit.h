@@ -44,6 +44,7 @@ typedef struct {
     hash_t parent;
     char *author;
     char *message;
+    char *signature;  /* Hex-encoded signature (NULL if unsigned) */
     time_t timestamp;
 } commit_t;
 
@@ -107,6 +108,8 @@ int mkdirp(const char *path);
 int file_exists(const char *path);
 char* read_file(const char *path, size_t *size);
 int write_file(const char *path, const void *data, size_t size);
+int is_safe_path(const char *path);
+int is_valid_ref_name(const char *name);
 
 /* checkout.c */
 int checkout_commit(const hash_t *commit_hash);
@@ -137,5 +140,24 @@ int stash_drop(const char *stash_name);
 
 /* verify.c */
 int verify_repository(void);
+
+/* merge.c */
+int merge_three_way(const hash_t *current_commit, const hash_t *target_commit,
+                    const char *current_branch, const char *target_branch);
+int hash_is_null(const hash_t *hash);
+
+/* signature.c */
+int signature_generate_keypair(void);
+int signature_sign(const char *data, size_t data_len, char **signature_out, size_t *sig_len_out);
+int signature_verify(const char *data, size_t data_len, const char *hex_signature, size_t sig_hex_len);
+int signature_has_key(void);
+
+/* shallow.c */
+int shallow_mark(const hash_t *shallow_commits, size_t count);
+int shallow_is_repository_shallow(void);
+int shallow_read_commits(hash_t **commits_out, size_t *count_out);
+int shallow_is_boundary(const hash_t *commit_hash);
+int shallow_deepen(int depth);
+int shallow_collect_commits(const hash_t *start, int depth, hash_t **commits_out, size_t *count_out);
 
 #endif

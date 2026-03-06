@@ -68,7 +68,7 @@ static int collect_all_objects(hash_t **hashes, size_t *count) {
         while ((obj_entry = readdir(subdir_dir)) != NULL) {
             if (obj_entry->d_name[0] == '.') continue;
 
-            char hex[HASH_HEX_SIZE + 1];
+            char hex[512];
             snprintf(hex, sizeof(hex), "%s%s", entry->d_name, obj_entry->d_name);
 
             if (strlen(hex) != HASH_HEX_SIZE) continue;

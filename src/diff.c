@@ -19,7 +19,16 @@ static line_t* read_lines(const char *data, size_t size) {
         size_t len = newline ? (newline - start + 1) : (end - start);
 
         line_t *line = malloc(sizeof(line_t));
+        if (!line) {
+            fprintf(stderr, "Failed to allocate memory for line\n");
+            return head;
+        }
         line->content = malloc(len + 1);
+        if (!line->content) {
+            fprintf(stderr, "Failed to allocate memory for line content\n");
+            free(line);
+            return head;
+        }
         memcpy(line->content, start, len);
         line->content[len] = '\0';
         line->next = NULL;
@@ -120,7 +129,7 @@ int diff_trees(const hash_t *tree1, const hash_t *tree2, const char *prefix) {
 
                     if (e1->mode == 040000) {
                         /* Recursively diff directories */
-                        char new_prefix[512];
+                        char new_prefix[1024];
                         snprintf(new_prefix, sizeof(new_prefix), "%s/", path);
                         diff_trees(&e1->hash, &e2->hash, new_prefix);
                     } else {

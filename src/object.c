@@ -8,8 +8,12 @@
 char* object_path(const hash_t *hash) {
     char hex[HASH_HEX_SIZE + 1];
     hash_to_hex(hash, hex);
-    
+
     char *path = malloc(256);
+    if (!path) {
+        fprintf(stderr, "Failed to allocate memory for object path\n");
+        return NULL;
+    }
     snprintf(path, 256, "%s/%.2s/%s", FIT_OBJECTS_DIR, hex, hex + 2);
     return path;
 }
@@ -169,6 +173,14 @@ int object_read(const hash_t *hash, object_t *obj) {
 
     obj->size = atoll(type_end + 1);
     if (obj->size == 0 && type_end[1] != '0') {
+        free(uncompressed);
+        return -1;
+    }
+
+    // Validate that we have enough data in the uncompressed buffer
+    size_t header_size = (size_end + 1) - (char*)uncompressed;
+    if (header_size + obj->size > uncompressed_size) {
+        fprintf(stderr, "Error: Object size exceeds decompressed data\n");
         free(uncompressed);
         return -1;
     }
