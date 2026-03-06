@@ -8,6 +8,12 @@
 #define FIT_TAGS_DIR ".fit/refs/tags"
 
 int tag_create(const char *name, const hash_t *commit_hash, const char *message) {
+    /* Validate tag name to prevent directory traversal */
+    if (!is_valid_ref_name(name)) {
+        fprintf(stderr, "Error: Invalid tag name '%s'\n", name);
+        return -1;
+    }
+
     char tag_path[512];
     snprintf(tag_path, sizeof(tag_path), "%s/%s", FIT_TAGS_DIR, name);
 
@@ -40,6 +46,12 @@ int tag_create(const char *name, const hash_t *commit_hash, const char *message)
 }
 
 int tag_delete(const char *name) {
+    /* Validate tag name to prevent directory traversal */
+    if (!is_valid_ref_name(name)) {
+        fprintf(stderr, "Error: Invalid tag name '%s'\n", name);
+        return -1;
+    }
+
     char tag_path[512];
     snprintf(tag_path, sizeof(tag_path), "%s/%s", FIT_TAGS_DIR, name);
 
@@ -102,6 +114,11 @@ int tag_list(void) {
 }
 
 int tag_resolve(const char *name, hash_t *out) {
+    /* Validate tag name to prevent directory traversal */
+    if (!is_valid_ref_name(name)) {
+        return -1;
+    }
+
     char tag_path[512];
     snprintf(tag_path, sizeof(tag_path), "%s/%s", FIT_TAGS_DIR, name);
 

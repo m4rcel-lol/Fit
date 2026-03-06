@@ -367,12 +367,18 @@ static void cmd_branch(int argc, char **argv) {
         closedir(d);
         if (current) free(current);
     } else {
+        /* Validate branch name to prevent directory traversal */
+        if (!is_valid_ref_name(argv[0])) {
+            fprintf(stderr, "Error: Invalid branch name '%s'\n", argv[0]);
+            return;
+        }
+
         hash_t hash;
         if (ref_resolve_head(&hash) < 0) {
             fprintf(stderr, "No commits yet\n");
             return;
         }
-        
+
         char ref_name[256];
         snprintf(ref_name, sizeof(ref_name), "heads/%s", argv[0]);
         ref_write(ref_name, &hash);
@@ -385,28 +391,36 @@ static void cmd_checkout(int argc, char **argv) {
         fprintf(stderr, "Usage: fit checkout <branch|commit>\n");
         return;
     }
-    
+
     hash_t hash;
     char ref_name[256];
-    snprintf(ref_name, sizeof(ref_name), "heads/%s", argv[0]);
-    
-    if (ref_read(ref_name, &hash) == 0) {
-        FILE *f = fopen(FIT_HEAD_FILE, "w");
-        if (!f) {
-            fprintf(stderr, "Error: Failed to update HEAD file\n");
+
+    /* Try to interpret as branch name first (only if it's a valid ref name) */
+    if (is_valid_ref_name(argv[0])) {
+        snprintf(ref_name, sizeof(ref_name), "heads/%s", argv[0]);
+
+        if (ref_read(ref_name, &hash) == 0) {
+            FILE *f = fopen(FIT_HEAD_FILE, "w");
+            if (!f) {
+                fprintf(stderr, "Error: Failed to update HEAD file\n");
+                return;
+            }
+            fprintf(f, "ref: refs/%s\n", ref_name);
+            fclose(f);
+
+            commit_t commit;
+            if (commit_read(&hash, &commit) == 0) {
+                checkout_tree(&commit.tree, NULL);
+                commit_free(&commit);
+            }
+
+            printf("Switched to branch %s\n", argv[0]);
             return;
         }
-        fprintf(f, "ref: refs/%s\n", ref_name);
-        fclose(f);
-        
-        commit_t commit;
-        if (commit_read(&hash, &commit) == 0) {
-            checkout_tree(&commit.tree, NULL);
-            commit_free(&commit);
-        }
-        
-        printf("Switched to branch %s\n", argv[0]);
-    } else if (hex_to_hash(argv[0], &hash) == 0) {
+    }
+
+    /* Try as commit hash if not a valid branch name or branch not found */
+    if (hex_to_hash(argv[0], &hash) == 0) {
         commit_t commit;
         if (commit_read(&hash, &commit) == 0) {
             checkout_tree(&commit.tree, NULL);
@@ -825,6 +839,12 @@ static void cmd_merge(int argc, char **argv) {
     }
 
     const char *branch_name = argv[0];
+
+    /* Validate branch name to prevent directory traversal */
+    if (!is_valid_ref_name(branch_name)) {
+        fprintf(stderr, "Error: Invalid branch name '%s'\n", branch_name);
+        return;
+    }
 
     /* Get current branch */
     char *current_branch = ref_current_branch();

@@ -109,6 +109,7 @@ int file_exists(const char *path);
 char* read_file(const char *path, size_t *size);
 int write_file(const char *path, const void *data, size_t size);
 int is_safe_path(const char *path);
+int is_valid_ref_name(const char *name);
 
 /* checkout.c */
 int checkout_commit(const hash_t *commit_hash);

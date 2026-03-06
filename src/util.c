@@ -123,3 +123,31 @@ int is_safe_path(const char *path) {
 
     return 1;  // Path is safe
 }
+
+/* Validate tag/branch name to prevent directory traversal */
+int is_valid_ref_name(const char *name) {
+    if (!name || name[0] == '\0') {
+        return 0;  // Empty name not allowed
+    }
+
+    // Check for hidden files (starting with .)
+    if (name[0] == '.') {
+        return 0;  // Names starting with . not allowed
+    }
+
+    // Check for path separators
+    const char *p = name;
+    while (*p) {
+        if (*p == '/' || *p == '\\') {
+            return 0;  // Path separators not allowed
+        }
+        p++;
+    }
+
+    // Check for reasonable length (max 255 characters)
+    if (strlen(name) > 255) {
+        return 0;
+    }
+
+    return 1;  // Name is valid
+}
