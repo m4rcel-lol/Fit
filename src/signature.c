@@ -152,7 +152,7 @@ int signature_sign(const char *data, size_t data_len, char **signature_out, size
     }
 
     for (size_t i = 0; i < sig_len; i++) {
-        sprintf(hex_sig + i * 2, "%02x", sig[i]);
+        snprintf(hex_sig + i * 2, 3, "%02x", sig[i]);
     }
     hex_sig[sig_len * 2] = '\0';
 
@@ -180,6 +180,23 @@ int signature_verify(const char *data, size_t data_len, const char *hex_signatur
     if (!pkey) {
         fprintf(stderr, "Failed to read public key\n");
         return -1;
+    }
+
+    /* Validate hex string length must be even */
+    if (sig_hex_len % 2 != 0) {
+        fprintf(stderr, "Invalid signature: hex length must be even\n");
+        EVP_PKEY_free(pkey);
+        return -1;
+    }
+
+    /* Validate hex string contains only valid hex characters */
+    for (size_t i = 0; i < sig_hex_len; i++) {
+        char c = hex_signature[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            fprintf(stderr, "Invalid signature: contains non-hex character at position %zu\n", i);
+            EVP_PKEY_free(pkey);
+            return -1;
+        }
     }
 
     /* Convert hex signature to binary */

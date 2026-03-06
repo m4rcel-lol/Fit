@@ -107,6 +107,10 @@ static void cmd_add(int argc, char **argv) {
     }
 
     for (int i = 0; i < argc; i++) {
+        if (!is_safe_path(argv[i])) {
+            fprintf(stderr, "Error: Invalid or unsafe file path: %s\n", argv[i]);
+            continue;
+        }
         if (strlen(argv[i]) > 1024) {
             fprintf(stderr, "Error: File path too long: %s\n", argv[i]);
             continue;
@@ -559,6 +563,10 @@ static void cmd_clone(int argc, char **argv) {
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--depth") == 0 && i + 1 < argc) {
             depth = atoi(argv[i + 1]);
+            if (depth < 1 || depth > 100000) {
+                fprintf(stderr, "Error: Invalid depth value (must be between 1 and 100000): %d\n", depth);
+                return;
+            }
             i++; /* Skip next arg */
         } else if (argv[i][0] != '-') {
             dir = argv[i];
