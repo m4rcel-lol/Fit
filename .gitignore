@@ -3,6 +3,8 @@ bin/
 obj/
 *.o
 *.a
+fit
+fitweb
 
 # Web interface database
 fitweb.db
