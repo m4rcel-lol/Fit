@@ -96,10 +96,20 @@ static int negotiate_protocol(int client_fd, uint8_t *negotiated_version, uint32
     protocol_caps_t client_caps;
 
     // Receive client capabilities
-    if (read(client_fd, &client_caps.min_version, 1) != 1 ||
-        read(client_fd, &client_caps.max_version, 1) != 1 ||
-        read(client_fd, &client_caps.capabilities, sizeof(uint32_t)) != sizeof(uint32_t)) {
-        fprintf(stderr, "Failed to read client capabilities\n");
+    ssize_t bytes_read;
+    bytes_read = read(client_fd, &client_caps.min_version, 1);
+    if (bytes_read != 1) {
+        fprintf(stderr, "Failed to read client min_version (read %zd bytes)\n", bytes_read);
+        return -1;
+    }
+    bytes_read = read(client_fd, &client_caps.max_version, 1);
+    if (bytes_read != 1) {
+        fprintf(stderr, "Failed to read client max_version (read %zd bytes)\n", bytes_read);
+        return -1;
+    }
+    bytes_read = read(client_fd, &client_caps.capabilities, sizeof(uint32_t));
+    if (bytes_read != sizeof(uint32_t)) {
+        fprintf(stderr, "Failed to read client capabilities (read %zd bytes)\n", bytes_read);
         return -1;
     }
 
@@ -160,10 +170,20 @@ static int client_negotiate_protocol(int sock, uint8_t *negotiated_version, uint
 
     // Receive server capabilities
     protocol_caps_t server_caps;
-    if (read(sock, &server_caps.min_version, 1) != 1 ||
-        read(sock, &server_caps.max_version, 1) != 1 ||
-        read(sock, &server_caps.capabilities, sizeof(uint32_t)) != sizeof(uint32_t)) {
-        fprintf(stderr, "Failed to read server capabilities\n");
+    ssize_t srv_bytes_read;
+    srv_bytes_read = read(sock, &server_caps.min_version, 1);
+    if (srv_bytes_read != 1) {
+        fprintf(stderr, "Failed to read server min_version (read %zd bytes)\n", srv_bytes_read);
+        return -1;
+    }
+    srv_bytes_read = read(sock, &server_caps.max_version, 1);
+    if (srv_bytes_read != 1) {
+        fprintf(stderr, "Failed to read server max_version (read %zd bytes)\n", srv_bytes_read);
+        return -1;
+    }
+    srv_bytes_read = read(sock, &server_caps.capabilities, sizeof(uint32_t));
+    if (srv_bytes_read != sizeof(uint32_t)) {
+        fprintf(stderr, "Failed to read server capabilities (read %zd bytes)\n", srv_bytes_read);
         return -1;
     }
 

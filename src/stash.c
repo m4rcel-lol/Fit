@@ -33,6 +33,12 @@ int stash_save(const char *message) {
 
     for (index_entry_t *e = entries; e; e = e->next) {
         tree_entry_t *te = tree_entry_new(e->mode, e->path, &e->hash);
+        if (!te) {
+            fprintf(stderr, "Error: Failed to allocate tree entry for stash\n");
+            tree_free(tree_head);
+            index_free(entries);
+            return -1;
+        }
         if (!tree_head) tree_head = te;
         if (tree_tail) tree_tail->next = te;
         tree_tail = te;

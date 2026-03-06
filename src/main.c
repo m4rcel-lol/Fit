@@ -124,9 +124,16 @@ static hash_t build_tree_from_index(void) {
     index_read(&entries);
     
     tree_entry_t *tree_head = NULL, *tree_tail = NULL;
-    
+
     for (index_entry_t *e = entries; e; e = e->next) {
         tree_entry_t *te = tree_entry_new(e->mode, e->path, &e->hash);
+        if (!te) {
+            fprintf(stderr, "Error: Failed to allocate tree entry\n");
+            tree_free(tree_head);
+            index_free(entries);
+            hash_t zero_hash = {0};
+            return zero_hash;
+        }
         if (!tree_head) tree_head = te;
         if (tree_tail) tree_tail->next = te;
         tree_tail = te;
@@ -216,6 +223,11 @@ static void cmd_commit(int argc, char **argv) {
         } else {
             sign_len = asprintf(&data_to_sign, "tree %s\nauthor %s %ld\n\n%s",
                                tree_hex, commit.author, commit.timestamp, commit.message);
+        }
+
+        if ((int)sign_len < 0 || !data_to_sign) {
+            fprintf(stderr, "Error: Failed to allocate memory for signing\n");
+            return;
         }
 
         char *signature_hex = NULL;
@@ -888,6 +900,13 @@ static void cmd_merge(int argc, char **argv) {
         /* Build tree from index entries */
         for (index_entry_t *e = entries; e; e = e->next) {
             tree_entry_t *new_entry = tree_entry_new(e->mode, e->path, &e->hash);
+            if (!new_entry) {
+                fprintf(stderr, "Error: Failed to allocate tree entry\n");
+                tree_free(tree_entries);
+                index_free(entries);
+                free(current_branch);
+                return;
+            }
             new_entry->next = tree_entries;
             tree_entries = new_entry;
         }
@@ -1006,6 +1025,12 @@ static void cmd_verify_commit(int argc, char **argv) {
     } else {
         data_len = asprintf(&data_to_verify, "tree %s\nauthor %s %ld\n\n%s",
                            tree_hex, commit.author, commit.timestamp, commit.message);
+    }
+
+    if ((int)data_len < 0 || !data_to_verify) {
+        fprintf(stderr, "Error: Failed to allocate memory for verification\n");
+        commit_free(&commit);
+        return;
     }
 
     int result = signature_verify(data_to_verify, data_len, commit.signature, strlen(commit.signature));

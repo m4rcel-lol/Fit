@@ -177,6 +177,14 @@ int object_read(const hash_t *hash, object_t *obj) {
         return -1;
     }
 
+    // Validate that we have enough data in the uncompressed buffer
+    size_t header_size = (size_end + 1) - (char*)uncompressed;
+    if (header_size + obj->size > uncompressed_size) {
+        fprintf(stderr, "Error: Object size exceeds decompressed data\n");
+        free(uncompressed);
+        return -1;
+    }
+
     obj->data = malloc(obj->size);
     if (!obj->data) {
         free(uncompressed);
