@@ -8,8 +8,12 @@
 char* object_path(const hash_t *hash) {
     char hex[HASH_HEX_SIZE + 1];
     hash_to_hex(hash, hex);
-    
+
     char *path = malloc(256);
+    if (!path) {
+        fprintf(stderr, "Failed to allocate memory for object path\n");
+        return NULL;
+    }
     snprintf(path, 256, "%s/%.2s/%s", FIT_OBJECTS_DIR, hex, hex + 2);
     return path;
 }

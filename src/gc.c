@@ -28,10 +28,16 @@ static int collect_objects(const char *dir, hash_t **objects, int *count, int *c
         } else {
             if (*count >= *capacity) {
                 *capacity *= 2;
-                *objects = realloc(*objects, *capacity * sizeof(hash_t));
+                hash_t *new_objects = realloc(*objects, *capacity * sizeof(hash_t));
+                if (!new_objects) {
+                    fprintf(stderr, "Failed to reallocate memory for objects\n");
+                    closedir(d);
+                    return -1;
+                }
+                *objects = new_objects;
             }
-            
-            char hex[HASH_HEX_SIZE + 1];
+
+            char hex[512];
             const char *parent = strrchr(dir, '/');
             snprintf(hex, sizeof(hex), "%s%s", parent ? parent + 1 : "", entry->d_name);
             hex_to_hash(hex, &(*objects)[*count]);
@@ -97,9 +103,9 @@ int gc_run(void) {
         struct dirent *entry;
         while ((entry = readdir(d))) {
             if (entry->d_name[0] == '.') continue;
-            
+
             hash_t ref_hash;
-            char ref_name[256];
+            char ref_name[512];
             snprintf(ref_name, sizeof(ref_name), "heads/%s", entry->d_name);
             if (ref_read(ref_name, &ref_hash) == 0) {
                 mark_reachable(&ref_hash, marked, objects, count);

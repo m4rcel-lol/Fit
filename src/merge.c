@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -259,6 +260,13 @@ static int merge_trees_recursive(const hash_t *base_tree, const hash_t *ours_tre
 
     // Collect all unique file names
     char **all_names = malloc(sizeof(char*) * 1024);
+    if (!all_names) {
+        fprintf(stderr, "Failed to allocate memory for file names\n");
+        tree_free(base_entries);
+        tree_free(ours_entries);
+        tree_free(theirs_entries);
+        return -1;
+    }
     int name_count = 0;
 
     // Add names from ours
@@ -382,6 +390,10 @@ static int merge_trees_recursive(const hash_t *base_tree, const hash_t *ours_tre
 // Main three-way merge function
 int merge_three_way(const hash_t *current_commit, const hash_t *target_commit,
                     const char *current_branch, const char *target_branch) {
+    // Suppress unused parameter warnings
+    (void)current_branch;
+    (void)target_branch;
+
     // Find merge base
     hash_t base;
     if (find_merge_base(current_commit, target_commit, &base) < 0) {

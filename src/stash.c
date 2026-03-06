@@ -161,6 +161,7 @@ int stash_pop(const char *stash_name) {
                 if (timestamp > latest_time) {
                     latest_time = timestamp;
                     strncpy(latest_stash, entry->d_name, sizeof(latest_stash) - 1);
+                    latest_stash[sizeof(latest_stash) - 1] = '\0';
                 }
             }
         }

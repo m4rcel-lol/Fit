@@ -297,6 +297,10 @@ static void cmd_checkout(int argc, char **argv) {
     
     if (ref_read(ref_name, &hash) == 0) {
         FILE *f = fopen(FIT_HEAD_FILE, "w");
+        if (!f) {
+            fprintf(stderr, "Error: Failed to update HEAD file\n");
+            return;
+        }
         fprintf(f, "ref: refs/%s\n", ref_name);
         fclose(f);
         
@@ -312,8 +316,12 @@ static void cmd_checkout(int argc, char **argv) {
         if (commit_read(&hash, &commit) == 0) {
             checkout_tree(&commit.tree, NULL);
             commit_free(&commit);
-            
+
             FILE *f = fopen(FIT_HEAD_FILE, "w");
+            if (!f) {
+                fprintf(stderr, "Error: Failed to update HEAD file\n");
+                return;
+            }
             fprintf(f, "%s\n", argv[0]);
             fclose(f);
             

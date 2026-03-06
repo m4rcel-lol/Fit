@@ -22,10 +22,19 @@ int index_read(index_entry_t **entries) {
         char path[2048];
         
         if (sscanf(line, "%o %64s %2047s", &mode, hash_hex, path) != 3) continue;
-        
+
         index_entry_t *entry = calloc(1, sizeof(index_entry_t));
+        if (!entry) {
+            fprintf(stderr, "Failed to allocate memory for index entry\n");
+            continue;
+        }
         entry->mode = mode;
         entry->path = strdup(path);
+        if (!entry->path) {
+            fprintf(stderr, "Failed to duplicate path for index entry\n");
+            free(entry);
+            continue;
+        }
         hex_to_hash(hash_hex, &entry->hash);
         
         if (!head) head = entry;
@@ -78,9 +87,20 @@ int index_add(const char *path) {
             return 0;
         }
     }
-    
+
     index_entry_t *new_entry = calloc(1, sizeof(index_entry_t));
+    if (!new_entry) {
+        fprintf(stderr, "Failed to allocate memory for index entry\n");
+        index_free(entries);
+        return -1;
+    }
     new_entry->path = strdup(path);
+    if (!new_entry->path) {
+        fprintf(stderr, "Failed to duplicate path for index entry\n");
+        free(new_entry);
+        index_free(entries);
+        return -1;
+    }
     new_entry->hash = hash;
     new_entry->mode = st.st_mode;
     

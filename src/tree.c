@@ -6,8 +6,17 @@
 
 tree_entry_t* tree_entry_new(uint32_t mode, const char *name, const hash_t *hash) {
     tree_entry_t *entry = calloc(1, sizeof(tree_entry_t));
+    if (!entry) {
+        fprintf(stderr, "Failed to allocate memory for tree entry\n");
+        return NULL;
+    }
     entry->mode = mode;
     entry->name = strdup(name);
+    if (!entry->name) {
+        fprintf(stderr, "Failed to duplicate name for tree entry\n");
+        free(entry);
+        return NULL;
+    }
     entry->hash = *hash;
     return entry;
 }
@@ -17,17 +26,33 @@ int tree_write(tree_entry_t *entries, hash_t *out) {
     for (tree_entry_t *e = entries; e; e = e->next) {
         size += snprintf(NULL, 0, "%o %s", e->mode, e->name) + 1 + HASH_SIZE;
     }
-    
+
     char *data = malloc(size);
+    if (!data) {
+        fprintf(stderr, "Failed to allocate memory for tree\n");
+        return -1;
+    }
     char *ptr = data;
-    
+    char *end = data + size;
+
     for (tree_entry_t *e = entries; e; e = e->next) {
-        ptr += sprintf(ptr, "%o %s", e->mode, e->name);
+        int written = snprintf(ptr, end - ptr, "%o %s", e->mode, e->name);
+        if (written < 0 || ptr + written >= end) {
+            fprintf(stderr, "Buffer overflow in tree_write\n");
+            free(data);
+            return -1;
+        }
+        ptr += written;
         *ptr++ = '\0';
+        if (ptr + HASH_SIZE > end) {
+            fprintf(stderr, "Buffer overflow in tree_write\n");
+            free(data);
+            return -1;
+        }
         memcpy(ptr, e->hash.hash, HASH_SIZE);
         ptr += HASH_SIZE;
     }
-    
+
     object_t obj = { .data = data, .size = size, .type = OBJ_TREE };
     int ret = object_write(&obj, out);
     free(data);
