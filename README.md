@@ -14,13 +14,15 @@ Fit reimplements Git's core concepts:
 - **Garbage collection**: removes unreachable objects
 - **Network protocol**: custom TCP-based object transfer
 
-### Key Differences from Git
+## Key Differences from Git
 
 1. **SHA-256 by default** (Git uses SHA-1, transitioning to SHA-256)
 2. **Simplified protocol** - custom lightweight TCP protocol with smart negotiation
 3. **Backup-first design** - includes `snapshot` command for quick full-directory backups
 4. **Minimal dependencies** - only zlib and OpenSSL
 5. **No delta compression yet** - stores full objects (stretch goal)
+6. **RSA-signed commits** - built-in commit signing with RSA keys
+7. **Shallow clone support** - clone with limited history depth
 
 ## Object Model
 
@@ -81,6 +83,36 @@ Capabilities:
 - `CAP_STREAMING`: Optimized streaming transfer
 
 The protocol automatically negotiates the highest common version and capability set between client and server, with automatic fallback to legacy protocol v1 for backward compatibility.
+
+## New Features
+
+### Signed Commits (RSA-2048)
+
+Fit includes built-in commit signing using RSA-2048 keys, providing cryptographic verification of commit authorship without requiring external GPG setup.
+
+- **Key Generation**: `fit init-signing` generates a private/public key pair
+- **Signing**: Use `--sign` or `-S` flag when committing
+- **Verification**: `fit verify-commit <hash>` verifies signatures
+- **Keys stored in**: `.fit/private_key.pem` and `.fit/public_key.pem`
+
+```bash
+fit init-signing
+fit commit -m "Secure commit" --sign
+fit verify-commit abc123
+```
+
+### Shallow Clones
+
+Clone repositories with limited history depth, saving bandwidth and disk space for large repositories.
+
+- **Shallow Clone**: `fit clone <host> <branch> [dir] --depth <N>`
+- **History Limit**: Only fetches the last N commits
+- **Boundary Marker**: `.fit/shallow` file tracks shallow boundaries
+- **Log Display**: `fit log` shows "(shallow boundary)" at truncation point
+
+```bash
+fit clone server.local main ./project --depth 10
+```
 
 ## Installation
 
@@ -236,6 +268,25 @@ fit pull server.local main
 
 # Clone repository
 fit clone server.local main ~/myproject
+
+# Shallow clone (only last 5 commits)
+fit clone server.local main ~/myproject --depth 5
+```
+
+### Signed Commits
+
+```bash
+# Generate signing key pair (one-time setup)
+fit init-signing
+
+# Create signed commit
+fit commit -m "Important change" --sign
+
+# Alternative short flag
+fit commit -m "Another change" -S
+
+# Verify commit signature
+fit verify-commit abc123def456
 ```
 
 ### Disaster Recovery
@@ -436,20 +487,20 @@ fit push localhost main
 ### Stretch Goals
 
 - [ ] Delta compression for packfiles
+- [x] **Signed commits (RSA)** - **✓ Implemented**
 - [ ] End-to-end encryption
-- [ ] Signed commits (GPG)
 - [ ] File chunking for large files
 - [x] Multi-threaded daemon - **✓ Implemented**
 - [x] Smart protocol negotiation - **✓ Implemented**
-- [ ] Shallow clones
+- [x] **Shallow clones** - **✓ Implemented**
 - [ ] Submodule support
 - [x] Three-way merge algorithm - **✓ Implemented**
 
 ## Security Notes
 
 - **No authentication**: Daemon accepts all connections
-- **No encryption**: Data sent in plaintext
-- **No signing**: Commits not cryptographically signed
+- **No encryption**: Data sent in plaintext (transport layer)
+- **Commit signing available**: Use RSA-2048 signatures to verify commit authorship
 
 For production use, run behind VPN or SSH tunnel:
 
