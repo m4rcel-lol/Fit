@@ -295,7 +295,7 @@ static void cmd_log(int argc, char **argv) {
         } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
             max_count = atoi(argv[i + 1]);
             if (max_count <= 0) {
-                fprintf(stderr, "Error: Invalid count for -n\n");
+                fprintf(stderr, "Error: -n requires a positive integer\n");
                 return;
             }
             i++;
