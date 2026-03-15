@@ -10,8 +10,9 @@
 
 static void cmd_init(void);
 static void cmd_add(int argc, char **argv);
+static void cmd_rm(int argc, char **argv);
 static void cmd_commit(int argc, char **argv);
-static void cmd_log(void);
+static void cmd_log(int argc, char **argv);
 static void cmd_status(void);
 static void cmd_branch(int argc, char **argv);
 static void cmd_checkout(int argc, char **argv);
@@ -30,6 +31,8 @@ static void cmd_merge(int argc, char **argv);
 static void cmd_verify(void);
 static void cmd_init_signing(void);
 static void cmd_verify_commit(int argc, char **argv);
+static void cmd_show(int argc, char **argv);
+static void cmd_version(void);
 static void cmd_help(void);
 static void cmd_credits(void);
 
@@ -42,8 +45,9 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "init") == 0) cmd_init();
     else if (strcmp(argv[1], "init-signing") == 0) cmd_init_signing();
     else if (strcmp(argv[1], "add") == 0) cmd_add(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "rm") == 0 || strcmp(argv[1], "remove") == 0) cmd_rm(argc - 2, argv + 2);
     else if (strcmp(argv[1], "commit") == 0) cmd_commit(argc - 2, argv + 2);
-    else if (strcmp(argv[1], "log") == 0) cmd_log();
+    else if (strcmp(argv[1], "log") == 0) cmd_log(argc - 2, argv + 2);
     else if (strcmp(argv[1], "status") == 0) cmd_status();
     else if (strcmp(argv[1], "branch") == 0) cmd_branch(argc - 2, argv + 2);
     else if (strcmp(argv[1], "checkout") == 0) cmd_checkout(argc - 2, argv + 2);
@@ -61,6 +65,8 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[1], "merge") == 0) cmd_merge(argc - 2, argv + 2);
     else if (strcmp(argv[1], "verify") == 0) cmd_verify();
     else if (strcmp(argv[1], "verify-commit") == 0) cmd_verify_commit(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "show") == 0) cmd_show(argc - 2, argv + 2);
+    else if (strcmp(argv[1], "version") == 0 || strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) cmd_version();
     else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) cmd_help();
     else if (strcmp(argv[1], "credits") == 0) cmd_credits();
     else {
@@ -119,6 +125,25 @@ static void cmd_add(int argc, char **argv) {
             printf("Added %s\n", argv[i]);
         } else {
             fprintf(stderr, "Failed to add %s\n", argv[i]);
+        }
+    }
+}
+
+static void cmd_rm(int argc, char **argv) {
+    if (argc == 0) {
+        fprintf(stderr, "Usage: fit rm <file>...\n");
+        return;
+    }
+
+    for (int i = 0; i < argc; i++) {
+        if (!is_safe_path(argv[i])) {
+            fprintf(stderr, "Error: Invalid or unsafe file path: %s\n", argv[i]);
+            continue;
+        }
+        if (index_remove(argv[i]) == 0) {
+            printf("Removed %s from index\n", argv[i]);
+        } else {
+            fprintf(stderr, "Failed to remove %s\n", argv[i]);
         }
     }
 }
@@ -260,33 +285,60 @@ static void cmd_commit(int argc, char **argv) {
     printf("Created commit %.8s%s\n", hex, sign_commit ? " (signed)" : "");
 }
 
-static void cmd_log(void) {
+static void cmd_log(int argc, char **argv) {
+    int oneline = 0;
+    int max_count = -1;
+
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--oneline") == 0) {
+            oneline = 1;
+        } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+            max_count = atoi(argv[i + 1]);
+            if (max_count <= 0) {
+                fprintf(stderr, "Error: Invalid count for -n\n");
+                return;
+            }
+            i++;
+        }
+    }
+
     hash_t hash;
     if (ref_resolve_head(&hash) < 0) {
         printf("No commits yet\n");
         return;
     }
 
+    int count = 0;
     while (1) {
+        if (max_count >= 0 && count >= max_count) break;
+
         commit_t commit;
         if (commit_read(&hash, &commit) < 0) break;
 
         char hex[HASH_HEX_SIZE + 1];
         hash_to_hex(&hash, hex);
 
-        printf("commit %s", hex);
-        if (commit.signature) {
-            printf(" (signed)");
-        }
-        printf("\n");
+        if (oneline) {
+            printf("\033[33m%.8s\033[0m %s\n", hex, commit.message);
+        } else {
+            printf("commit %s", hex);
+            if (commit.signature) {
+                printf(" (signed)");
+            }
+            printf("\n");
 
-        printf("Author: %s\n", commit.author);
-        printf("Date: %s", ctime(&commit.timestamp));
-        printf("\n    %s\n\n", commit.message);
+            printf("Author: %s\n", commit.author);
+            printf("Date: %s", ctime(&commit.timestamp));
+            printf("\n    %s\n\n", commit.message);
+        }
+
+        count++;
 
         /* Check if we hit a shallow boundary */
         if (shallow_is_boundary(&hash)) {
-            printf("(shallow boundary - history truncated)\n");
+            if (!oneline) {
+                printf("(shallow boundary - history truncated)\n");
+            }
             commit_free(&commit);
             break;
         }
@@ -359,13 +411,49 @@ static void cmd_branch(int argc, char **argv) {
         while ((entry = readdir(d))) {
             if (entry->d_name[0] == '.') continue;
             if (current && strcmp(entry->d_name, current) == 0) {
-                printf("* %s\n", entry->d_name);
+                printf("* \033[32m%s\033[0m\n", entry->d_name);
             } else {
                 printf("  %s\n", entry->d_name);
             }
         }
         closedir(d);
         if (current) free(current);
+    } else if (strcmp(argv[0], "-d") == 0 || strcmp(argv[0], "--delete") == 0) {
+        if (argc < 2) {
+            fprintf(stderr, "Usage: fit branch -d <name>\n");
+            return;
+        }
+
+        const char *branch_name = argv[1];
+
+        if (!is_valid_ref_name(branch_name)) {
+            fprintf(stderr, "Error: Invalid branch name '%s'\n", branch_name);
+            return;
+        }
+
+        /* Prevent deleting the current branch */
+        char *current = ref_current_branch();
+        if (current && strcmp(current, branch_name) == 0) {
+            fprintf(stderr, "Error: Cannot delete the currently checked out branch '%s'\n", branch_name);
+            free(current);
+            return;
+        }
+        if (current) free(current);
+
+        char ref_name[256];
+        snprintf(ref_name, sizeof(ref_name), "heads/%s", branch_name);
+
+        hash_t hash;
+        if (ref_read(ref_name, &hash) < 0) {
+            fprintf(stderr, "Branch '%s' not found\n", branch_name);
+            return;
+        }
+
+        if (ref_delete(ref_name) == 0) {
+            printf("Deleted branch %s\n", branch_name);
+        } else {
+            fprintf(stderr, "Failed to delete branch '%s'\n", branch_name);
+        }
     } else {
         /* Validate branch name to prevent directory traversal */
         if (!is_valid_ref_name(argv[0])) {
@@ -665,7 +753,7 @@ static void cmd_restore(int argc, char **argv) {
 }
 
 static void cmd_diff(int argc, char **argv) {
-    if (argc < 2) {
+    if (argc < 1) {
         fprintf(stderr, "Usage: fit diff <commit1> <commit2>\n");
         fprintf(stderr, "   or: fit diff <commit>  (compare with HEAD)\n");
         return;
@@ -951,7 +1039,7 @@ static void cmd_merge(int argc, char **argv) {
         index_free(entries);
 
         /* Create merge commit with two parents */
-        commit_t merge_commit;
+        commit_t merge_commit = {0};
         merge_commit.tree = tree_hash;
         merge_commit.parent = current_hash;  // First parent is current HEAD
         merge_commit.author = getenv("USER") ? getenv("USER") : "unknown";
@@ -1078,6 +1166,94 @@ static void cmd_verify_commit(int argc, char **argv) {
     }
 }
 
+static void cmd_show(int argc, char **argv) {
+    hash_t hash;
+
+    if (argc < 1) {
+        /* Show HEAD commit */
+        if (ref_resolve_head(&hash) < 0) {
+            fprintf(stderr, "No commits yet\n");
+            return;
+        }
+    } else {
+        /* Try as branch name first */
+        if (is_valid_ref_name(argv[0])) {
+            char ref_name[256];
+            snprintf(ref_name, sizeof(ref_name), "heads/%s", argv[0]);
+            if (ref_read(ref_name, &hash) < 0) {
+                /* Try as tag */
+                if (tag_resolve(argv[0], &hash) < 0) {
+                    /* Try as commit hash */
+                    if (hex_to_hash(argv[0], &hash) < 0) {
+                        fprintf(stderr, "Not a valid branch, tag, or commit hash: %s\n", argv[0]);
+                        return;
+                    }
+                }
+            }
+        } else {
+            if (hex_to_hash(argv[0], &hash) < 0) {
+                fprintf(stderr, "Invalid commit hash: %s\n", argv[0]);
+                return;
+            }
+        }
+    }
+
+    commit_t commit;
+    if (commit_read(&hash, &commit) < 0) {
+        fprintf(stderr, "Failed to read commit\n");
+        return;
+    }
+
+    char hex[HASH_HEX_SIZE + 1];
+    hash_to_hex(&hash, hex);
+
+    printf("\033[33mcommit %s\033[0m", hex);
+    if (commit.signature) {
+        printf(" \033[32m(signed)\033[0m");
+    }
+    printf("\n");
+    printf("Author: %s\n", commit.author);
+    printf("Date:   %s", ctime(&commit.timestamp));
+    printf("\n    %s\n", commit.message);
+
+    /* Show tree contents */
+    printf("\nTree contents:\n");
+    tree_entry_t *entries = tree_read(&commit.tree);
+    for (tree_entry_t *e = entries; e; e = e->next) {
+        char entry_hex[HASH_HEX_SIZE + 1];
+        hash_to_hex(&e->hash, entry_hex);
+        printf("  %06o %s %.8s  %s\n",
+               e->mode,
+               S_ISDIR(e->mode) ? "tree" : "blob",
+               entry_hex, e->name);
+    }
+    tree_free(entries);
+
+    /* Show diff with parent if available */
+    int has_parent = 0;
+    for (int i = 0; i < HASH_SIZE; i++) {
+        if (commit.parent.hash[i]) {
+            has_parent = 1;
+            break;
+        }
+    }
+
+    if (has_parent) {
+        printf("\nChanges from parent:\n");
+        commit_t parent_commit;
+        if (commit_read(&commit.parent, &parent_commit) == 0) {
+            diff_trees(&parent_commit.tree, &commit.tree, "");
+            commit_free(&parent_commit);
+        }
+    }
+
+    commit_free(&commit);
+}
+
+static void cmd_version(void) {
+    printf("fit version %s\n", FIT_VERSION);
+}
+
 static void cmd_help(void) {
     printf("╔══════════════════════════════════════════════════════════════╗\n");
     printf("║                    FIT - Filesystem Inside Terminal          ║\n");
@@ -1090,11 +1266,13 @@ static void cmd_help(void) {
     printf("  init                      Initialize a new repository\n");
     printf("  init-signing              Generate RSA key pair for signing commits\n");
     printf("  add <files>               Stage files for commit\n");
+    printf("  rm <files>                Remove files from staging area\n");
     printf("  commit -m <message> [-S]  Create a commit (optionally signed)\n");
-    printf("  log                       Show commit history\n");
+    printf("  log [--oneline] [-n N]    Show commit history\n");
     printf("  status                    Show repository status\n");
-    printf("  diff <commit1> <commit2>  Show differences between commits\n");
-    printf("  branch [name]             List or create branches\n");
+    printf("  show [commit|branch|tag]  Show commit details and changes\n");
+    printf("  diff <commit1> [commit2]  Show differences between commits\n");
+    printf("  branch [name|-d name]     List, create, or delete branches\n");
     printf("  checkout <branch>         Switch to a branch and restore files\n");
     printf("  merge <branch>            Merge a branch into current branch\n");
     printf("  tag [name|-a|-d]          List, create, or delete tags\n");
@@ -1109,6 +1287,7 @@ static void cmd_help(void) {
     printf("  gc                        Run garbage collection\n");
     printf("  verify                    Verify repository integrity\n");
     printf("  verify-commit <hash>      Verify commit signature\n");
+    printf("  version                   Show version information\n");
     printf("  help                      Show this help message\n");
     printf("  credits                   Show credits and info\n\n");
     

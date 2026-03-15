@@ -117,3 +117,13 @@ int ref_update_head(const hash_t *hash) {
     fclose(f);
     return 0;
 }
+
+int ref_delete(const char *name) {
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s", FIT_REFS_DIR, name);
+
+    if (remove(path) < 0) {
+        return -1;
+    }
+    return 0;
+}
