@@ -77,8 +77,7 @@ int index_add(const char *path) {
     index_entry_t *entries;
     index_read(&entries);
     
-    index_entry_t *prev = NULL;
-    for (index_entry_t *e = entries; e; prev = e, e = e->next) {
+    for (index_entry_t *e = entries; e; e = e->next) {
         if (strcmp(e->path, path) == 0) {
             e->hash = hash;
             e->mode = st.st_mode;
@@ -104,12 +103,48 @@ int index_add(const char *path) {
     new_entry->hash = hash;
     new_entry->mode = st.st_mode;
     
-    if (prev) prev->next = new_entry;
-    else entries = new_entry;
+    /* Append to end of list */
+    if (!entries) {
+        entries = new_entry;
+    } else {
+        index_entry_t *tail = entries;
+        while (tail->next) tail = tail->next;
+        tail->next = new_entry;
+    }
     
     index_write(entries);
     index_free(entries);
     return 0;
+}
+
+int index_remove(const char *path) {
+    index_entry_t *entries;
+    index_read(&entries);
+
+    if (!entries) {
+        fprintf(stderr, "Index is empty\n");
+        return -1;
+    }
+
+    index_entry_t *prev = NULL;
+    for (index_entry_t *e = entries; e; prev = e, e = e->next) {
+        if (strcmp(e->path, path) == 0) {
+            if (prev) {
+                prev->next = e->next;
+            } else {
+                entries = e->next;
+            }
+            e->next = NULL;
+            index_free(e);
+            index_write(entries);
+            index_free(entries);
+            return 0;
+        }
+    }
+
+    fprintf(stderr, "File '%s' not found in index\n", path);
+    index_free(entries);
+    return -1;
 }
 
 void index_free(index_entry_t *entries) {

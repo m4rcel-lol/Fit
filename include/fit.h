@@ -13,6 +13,8 @@
 #define FIT_HEAD_FILE ".fit/HEAD"
 #define FIT_CONFIG_FILE ".fit/config"
 
+#define FIT_VERSION "2.1.0"
+
 #define HASH_SIZE 32
 #define HASH_HEX_SIZE 64
 
@@ -82,6 +84,7 @@ void commit_free(commit_t *commit);
 int index_read(index_entry_t **entries);
 int index_write(index_entry_t *entries);
 int index_add(const char *path);
+int index_remove(const char *path);
 void index_free(index_entry_t *entries);
 
 /* refs.c */
@@ -90,6 +93,7 @@ int ref_write(const char *name, const hash_t *hash);
 int ref_resolve_head(hash_t *hash);
 int ref_update_head(const hash_t *hash);
 char* ref_current_branch(void);
+int ref_delete(const char *name);
 
 /* pack.c */
 int pack_objects(const hash_t *hashes, size_t count, const char *pack_file);

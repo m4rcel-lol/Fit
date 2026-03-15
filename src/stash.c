@@ -145,6 +145,11 @@ int stash_pop(const char *stash_name) {
     char stash_path[512];
 
     if (stash_name) {
+        /* Validate stash name to prevent directory traversal */
+        if (!is_valid_ref_name(stash_name)) {
+            fprintf(stderr, "Error: Invalid stash name '%s'\n", stash_name);
+            return -1;
+        }
         snprintf(stash_path, sizeof(stash_path), "%s/%s", FIT_STASH_DIR, stash_name);
     } else {
         /* Find the most recent stash */
@@ -237,6 +242,12 @@ int stash_drop(const char *stash_name) {
 
     if (!stash_name) {
         fprintf(stderr, "Usage: fit stash drop <stash-name>\n");
+        return -1;
+    }
+
+    /* Validate stash name to prevent directory traversal */
+    if (!is_valid_ref_name(stash_name)) {
+        fprintf(stderr, "Error: Invalid stash name '%s'\n", stash_name);
         return -1;
     }
 

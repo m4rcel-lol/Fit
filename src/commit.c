@@ -11,7 +11,7 @@ int commit_write(const commit_t *commit, hash_t *out) {
     hash_to_hex(&commit->parent, parent_hex);
 
     char *data;
-    size_t size;
+    int ret;
 
     int has_parent = 0;
     for (int i = 0; i < HASH_SIZE; i++) {
@@ -24,29 +24,32 @@ int commit_write(const commit_t *commit, hash_t *out) {
     if (commit->signature) {
         /* Include signature in commit object */
         if (has_parent) {
-            size = asprintf(&data, "tree %s\nparent %s\nauthor %s %ld\nsignature %s\n\n%s",
+            ret = asprintf(&data, "tree %s\nparent %s\nauthor %s %ld\nsignature %s\n\n%s",
                            tree_hex, parent_hex, commit->author, commit->timestamp,
                            commit->signature, commit->message);
         } else {
-            size = asprintf(&data, "tree %s\nauthor %s %ld\nsignature %s\n\n%s",
+            ret = asprintf(&data, "tree %s\nauthor %s %ld\nsignature %s\n\n%s",
                            tree_hex, commit->author, commit->timestamp,
                            commit->signature, commit->message);
         }
     } else {
         /* Original unsigned commit format */
         if (has_parent) {
-            size = asprintf(&data, "tree %s\nparent %s\nauthor %s %ld\n\n%s",
+            ret = asprintf(&data, "tree %s\nparent %s\nauthor %s %ld\n\n%s",
                            tree_hex, parent_hex, commit->author, commit->timestamp, commit->message);
         } else {
-            size = asprintf(&data, "tree %s\nauthor %s %ld\n\n%s",
+            ret = asprintf(&data, "tree %s\nauthor %s %ld\n\n%s",
                            tree_hex, commit->author, commit->timestamp, commit->message);
         }
     }
 
+    if (ret < 0 || !data) return -1;
+    size_t size = (size_t)ret;
+
     object_t obj = { .data = data, .size = size, .type = OBJ_COMMIT };
-    int ret = object_write(&obj, out);
+    int write_ret = object_write(&obj, out);
     free(data);
-    return ret;
+    return write_ret;
 }
 
 int commit_read(const hash_t *hash, commit_t *commit) {
@@ -70,8 +73,15 @@ int commit_read(const hash_t *hash, commit_t *commit) {
             hex[HASH_HEX_SIZE] = '\0';
             hex_to_hash(hex, &commit->parent);
         } else if (strncmp(line, "author ", 7) == 0) {
+            /* Find end of current line */
+            char *line_end = strchr(line, '\n');
+            if (!line_end) line_end = end;
+            /* Save and temporarily null-terminate the line */
+            char saved = *line_end;
+            *line_end = '\0';
             char *timestamp_str = strrchr(line, ' ');
-            if (timestamp_str) {
+            *line_end = saved;
+            if (timestamp_str && timestamp_str > line + 7) {
                 commit->timestamp = atol(timestamp_str + 1);
                 size_t author_len = timestamp_str - (line + 7);
                 commit->author = strndup(line + 7, author_len);

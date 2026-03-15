@@ -4,8 +4,6 @@
 #include <dirent.h>
 #include "fit.h"
 
-#define FIT_CONFIG_FILE ".fit/config"
-
 int remote_add(const char *name, const char *url) {
     /* Check if remote already exists */
     FILE *f = fopen(FIT_CONFIG_FILE, "r");
